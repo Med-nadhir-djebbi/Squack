@@ -10,6 +10,7 @@ import { MessagesModule } from './messages/messages.module';
 import { FollowsModule } from './follows/follows.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
   imports: [

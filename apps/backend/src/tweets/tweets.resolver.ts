@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { UseGuards } from '@nestjs/common';
 import {
   Args,
   Context,
@@ -8,16 +8,15 @@ import {
   Query,
   Resolver,
 } from '@nestjs/graphql';
+import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
+import { UserModel } from '../users/models/user.model';
 import { TweetsService } from './tweets.service';
-import { CreateTweetInput, TweetConnection, TweetType } from './tweets.types';
-
-interface TweetsRequestContext {
-  req: {
-    user?: {
-      id?: string;
-    };
-  };
-}
+import {
+  CreateTweetInput,
+  ReactToTweetInput,
+  TweetConnection,
+  TweetType,
+} from './tweets.types';
 
 @Resolver(() => TweetType)
 export class TweetsResolver {
@@ -39,31 +38,42 @@ export class TweetsResolver {
   }
 
   @Mutation(() => TweetType)
+  @UseGuards(GqlAuthGuard)
   createTweet(
-    @Context() context: TweetsRequestContext,
+    @Context() context: { req: { user: UserModel } },
     @Args('input') input: CreateTweetInput,
   ): Promise<TweetType> {
-    return this.tweetsService.create(
-      this.requireUserId(context),
-      input.content,
-    );
+    return this.tweetsService.create(context.req.user.id, input.content);
   }
 
   @Mutation(() => Boolean)
+  @UseGuards(GqlAuthGuard)
   deleteTweet(
-    @Context() context: TweetsRequestContext,
+    @Context() context: { req: { user: UserModel } },
     @Args('id', { type: () => ID }) id: string,
   ): Promise<boolean> {
-    return this.tweetsService.delete(this.requireUserId(context), id);
+    return this.tweetsService.delete(context.req.user.id, id);
   }
 
-  private requireUserId(context: TweetsRequestContext): string {
-    const userId = context.req.user?.id;
+  @Mutation(() => TweetType)
+  @UseGuards(GqlAuthGuard)
+  reactToTweet(
+    @Context() context: { req: { user: UserModel } },
+    @Args('input') input: ReactToTweetInput,
+  ): Promise<TweetType> {
+    return this.tweetsService.react(
+      context.req.user.id,
+      input.tweetId,
+      input.kind,
+    );
+  }
 
-    if (!userId) {
-      throw new UnauthorizedException('Authentication is required');
-    }
-
-    return userId;
+  @Mutation(() => TweetType)
+  @UseGuards(GqlAuthGuard)
+  removeTweetReaction(
+    @Context() context: { req: { user: UserModel } },
+    @Args('tweetId', { type: () => ID }) tweetId: string,
+  ): Promise<TweetType> {
+    return this.tweetsService.removeReaction(context.req.user.id, tweetId);
   }
 }

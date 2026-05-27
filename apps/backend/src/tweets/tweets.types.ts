@@ -1,10 +1,17 @@
+import { TweetReactionKind } from '@prisma/client';
 import {
   Field,
   GraphQLISODateTime,
   ID,
+  Int,
   InputType,
   ObjectType,
+  registerEnumType,
 } from '@nestjs/graphql';
+
+registerEnumType(TweetReactionKind, {
+  name: 'TweetReactionKind',
+});
 
 @ObjectType('TweetAuthor')
 export class TweetAuthor {
@@ -46,12 +53,36 @@ export class TweetType {
 
   @Field(() => GraphQLISODateTime)
   updatedAt!: Date;
+
+  @Field(() => Int)
+  reactionCount!: number;
+
+  @Field(() => [TweetReactionCount])
+  reactionCounts!: TweetReactionCount[];
 }
 
 @InputType()
 export class CreateTweetInput {
   @Field()
   content!: string;
+}
+
+@ObjectType('TweetReactionCount')
+export class TweetReactionCount {
+  @Field(() => TweetReactionKind)
+  kind!: TweetReactionKind;
+
+  @Field(() => Int)
+  count!: number;
+}
+
+@InputType()
+export class ReactToTweetInput {
+  @Field(() => ID)
+  tweetId!: string;
+
+  @Field(() => TweetReactionKind)
+  kind!: TweetReactionKind;
 }
 
 @ObjectType()

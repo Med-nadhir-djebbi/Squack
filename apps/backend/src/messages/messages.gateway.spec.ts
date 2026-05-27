@@ -1,4 +1,6 @@
+import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
+import { AuthService } from '../auth/auth.service';
 import { MessagesEvents } from './messages.events';
 import { MessagesGateway } from './messages.gateway';
 import { MessageType } from './messages.types';
@@ -16,35 +18,47 @@ describe('MessagesGateway', () => {
 
   let gateway: MessagesGateway;
   let events: MessagesEvents;
+  let jwtService: { verifyAsync: jest.Mock };
+  let authService: { validateUser: jest.Mock };
 
   beforeEach(() => {
     events = new MessagesEvents();
-    gateway = new MessagesGateway(events);
+    jwtService = { verifyAsync: jest.fn() };
+    authService = { validateUser: jest.fn() };
+    gateway = new MessagesGateway(
+      jwtService as unknown as JwtService,
+      authService as unknown as AuthService,
+      events,
+    );
   });
 
-  it('joins a socket authenticated by the shared socket middleware', () => {
+  it('joins a socket after validating the bearer token through auth', async () => {
     const join = jest.fn();
     const disconnect = jest.fn();
     const client = {
-      data: { user: { id: 'user-1' } },
+      handshake: { auth: { token: 'token' }, headers: {} },
+      data: {},
       join,
       disconnect,
     } as unknown as Socket;
+    jwtService.verifyAsync.mockResolvedValue({ sub: 'user-1' });
+    authService.validateUser.mockResolvedValue({ id: 'user-1' });
 
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
 
     expect(join).toHaveBeenCalledWith('user:user-1');
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it('disconnects a socket with no authenticated user context', () => {
+  it('disconnects a socket when it has no bearer token', async () => {
     const disconnect = jest.fn();
     const client = {
+      handshake: { auth: {}, headers: {} },
       data: {},
       join: jest.fn(),
       disconnect,
     } as unknown as Socket;
-    gateway.handleConnection(client);
+    await gateway.handleConnection(client);
 
     expect(disconnect).toHaveBeenCalledWith(true);
   });

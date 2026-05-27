@@ -1,17 +1,18 @@
 import { OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import {
   OnGatewayConnection,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { AuthService } from '../auth/auth.service';
+import { UserModel } from '../users/models/user.model';
 import { MessagesEvents } from './messages.events';
 import { MessageType } from './messages.types';
 
 interface MessagesSocketData {
-  user?: {
-    id?: string;
-  };
+  user?: UserModel;
 }
 
 @WebSocketGateway({
@@ -36,7 +37,11 @@ export class MessagesGateway
       .emit('message.sent.confirmed', message);
   };
 
-  constructor(private readonly events: MessagesEvents) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly authService: AuthService,
+    private readonly events: MessagesEvents,
+  ) {}
 
   onModuleInit(): void {
     this.events.onSent(this.deliverMessage);
@@ -46,15 +51,25 @@ export class MessagesGateway
     this.events.offSent(this.deliverMessage);
   }
 
-  handleConnection(client: Socket): void {
-    const socketData = client.data as MessagesSocketData;
-    const userId = socketData.user?.id;
+  async handleConnection(client: Socket): Promise<void> {
+    try {
+      const handshakeAuth = client.handshake.auth as { token?: unknown };
+      const authorization = client.handshake.headers.authorization;
+      const value = handshakeAuth.token ?? authorization;
 
-    if (!userId) {
+      if (typeof value !== 'string') {
+        throw new Error('Missing socket token');
+      }
+
+      const token = value.startsWith('Bearer ') ? value.slice(7) : value;
+      const payload = await this.jwtService.verifyAsync<{ sub: string }>(token);
+      const user = await this.authService.validateUser(payload.sub);
+      const socketData = client.data as MessagesSocketData;
+
+      socketData.user = user;
+      await client.join(`user:${user.id}`);
+    } catch {
       client.disconnect(true);
-      return;
     }
-
-    void client.join(`user:${userId}`);
   }
 }

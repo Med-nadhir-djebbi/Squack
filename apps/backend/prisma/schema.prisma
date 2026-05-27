@@ -12,11 +12,19 @@ enum NotificationType {
   TWEET
 }
 
+enum TweetReactionKind {
+  LIKE
+  LOVE
+  LAUGH
+  WOW
+  SAD
+}
+
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
-  email     String   @unique
-  password  String
+  id       String @id @default(uuid())
+  username String @unique
+  email    String @unique
+  password String
 
   bio       String?
   avatarUrl String?
@@ -24,12 +32,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tweets Tweet[]
+  tweets         Tweet[]
+  tweetReactions TweetReaction[]
 
   following Follow[] @relation("UserFollowing")
   followers Follow[] @relation("UserFollowers")
 
-  isDeleted Boolean  @default(false)
+  isDeleted Boolean   @default(false)
   deletedAt DateTime?
 
   sentMessages     Message[] @relation("SentMessages")
@@ -41,16 +50,37 @@ model User {
 }
 
 model Tweet {
-  id        String   @id @default(uuid())
-  content   String
+  id      String @id @default(uuid())
+  content String
 
-  authorId String
-  author   User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  reactions TweetReaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([authorId, createdAt])
   @@map("tweets")
+}
+
+model TweetReaction {
+  id   String            @id @default(uuid())
+  kind TweetReactionKind
+
+  tweetId String
+  userId  String
+
+  tweet Tweet @relation(fields: [tweetId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tweetId, userId])
+  @@index([tweetId, kind])
+  @@index([userId])
+  @@map("tweet_reactions")
 }
 
 model Follow {
@@ -90,7 +120,7 @@ model Notification {
   isRead  Boolean          @default(false)
 
   userId String
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 

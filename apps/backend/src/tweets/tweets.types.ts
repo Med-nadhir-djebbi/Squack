@@ -5,8 +5,27 @@ import {
   InputType,
   ObjectType,
 } from '@nestjs/graphql';
-import { PageInfo } from '../common/graphql/page-info.type';
-import { PublicUser } from '../common/graphql/public-user.type';
+
+@ObjectType('TweetAuthor')
+export class TweetAuthor {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  username!: string;
+
+  @Field(() => String, { nullable: true })
+  avatarUrl!: string | null;
+}
+
+@ObjectType('TweetPageInfo')
+export class TweetPageInfo {
+  @Field(() => String, { nullable: true })
+  nextCursor?: string;
+
+  @Field()
+  hasNextPage!: boolean;
+}
 
 @ObjectType('Tweet')
 export class TweetType {
@@ -19,8 +38,8 @@ export class TweetType {
   @Field(() => ID)
   authorId!: string;
 
-  @Field(() => PublicUser)
-  author!: PublicUser;
+  @Field(() => TweetAuthor)
+  author!: TweetAuthor;
 
   @Field(() => GraphQLISODateTime)
   createdAt!: Date;
@@ -40,6 +59,6 @@ export class TweetConnection {
   @Field(() => [TweetType])
   nodes!: TweetType[];
 
-  @Field(() => PageInfo)
-  pageInfo!: PageInfo;
+  @Field(() => TweetPageInfo)
+  pageInfo!: TweetPageInfo;
 }

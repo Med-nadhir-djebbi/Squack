@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AuthModule } from '../auth/auth.module';
+import { TweetsEvents } from './tweets.events';
 import { TweetsResolver } from './tweets.resolver';
 import { TweetsService } from './tweets.service';
 
 @Module({
-  imports: [AuthModule],
-  providers: [TweetsResolver, TweetsService],
-  exports: [TweetsService],
+  providers: [TweetsEvents, TweetsResolver, TweetsService],
+  exports: [TweetsEvents, TweetsService],
 })
 export class TweetsModule {}

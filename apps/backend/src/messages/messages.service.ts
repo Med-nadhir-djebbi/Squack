@@ -1,34 +1,22 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { MessagesEvents } from './messages.events';
+import { MessagesRepository } from './messages.repository';
 import { MessageConnection, MessageType } from './messages.types';
-
-const messageWithUsers = {
-  sender: {
-    select: {
-      id: true,
-      username: true,
-      avatarUrl: true,
-    },
-  },
-  receiver: {
-    select: {
-      id: true,
-      username: true,
-      avatarUrl: true,
-    },
-  },
-} as const;
 
 @Injectable()
 export class MessagesService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly events: DomainEventsService,
+    @Inject(MessagesRepository)
+    @Optional()
+    private readonly repository: MessagesRepository | undefined,
+    private readonly events: MessagesEvents,
   ) {}
 
   async findConversation(
@@ -42,17 +30,11 @@ export class MessagesService {
     }
 
     const pageSize = this.validatePageSize(limit);
-    const messages = await this.prisma.message.findMany({
-      where: {
-        OR: [
-          { senderId: userId, receiverId: withUserId },
-          { senderId: withUserId, receiverId: userId },
-        ],
-      },
-      include: messageWithUsers,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    const messages = await this.data.findConversation({
+      userId,
+      withUserId,
       take: pageSize + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      cursor,
     });
 
     const hasNextPage = messages.length > pageSize;
@@ -76,25 +58,19 @@ export class MessagesService {
       throw new BadRequestException('You cannot message yourself');
     }
 
-    const receiver = await this.prisma.user.findFirst({
-      where: { id: receiverId, isDeleted: false },
-      select: { id: true },
-    });
+    const receiverExists = await this.data.receiverExists(receiverId);
 
-    if (!receiver) {
+    if (!receiverExists) {
       throw new NotFoundException('Message receiver not found');
     }
 
-    const message = await this.prisma.message.create({
-      data: {
-        senderId,
-        receiverId,
-        content: this.validateContent(content),
-      },
-      include: messageWithUsers,
-    });
+    const message = await this.data.create(
+      senderId,
+      receiverId,
+      this.validateContent(content),
+    );
 
-    this.events.emit('message.sent', message);
+    this.events.emitSent(message);
 
     return message;
   }
@@ -121,5 +97,15 @@ export class MessagesService {
     }
 
     return limit;
+  }
+
+  private get data(): MessagesRepository {
+    if (!this.repository) {
+      throw new ServiceUnavailableException(
+        'Messages repository has not been connected',
+      );
+    }
+
+    return this.repository;
   }
 }

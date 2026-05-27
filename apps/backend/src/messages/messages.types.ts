@@ -5,8 +5,27 @@ import {
   InputType,
   ObjectType,
 } from '@nestjs/graphql';
-import { PageInfo } from '../common/graphql/page-info.type';
-import { PublicUser } from '../common/graphql/public-user.type';
+
+@ObjectType('MessageParticipant')
+export class MessageParticipant {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  username!: string;
+
+  @Field(() => String, { nullable: true })
+  avatarUrl!: string | null;
+}
+
+@ObjectType('MessagePageInfo')
+export class MessagePageInfo {
+  @Field(() => String, { nullable: true })
+  nextCursor?: string;
+
+  @Field()
+  hasNextPage!: boolean;
+}
 
 @ObjectType('Message')
 export class MessageType {
@@ -22,11 +41,11 @@ export class MessageType {
   @Field(() => ID)
   receiverId!: string;
 
-  @Field(() => PublicUser)
-  sender!: PublicUser;
+  @Field(() => MessageParticipant)
+  sender!: MessageParticipant;
 
-  @Field(() => PublicUser)
-  receiver!: PublicUser;
+  @Field(() => MessageParticipant)
+  receiver!: MessageParticipant;
 
   @Field(() => GraphQLISODateTime)
   createdAt!: Date;
@@ -46,6 +65,6 @@ export class MessageConnection {
   @Field(() => [MessageType])
   nodes!: MessageType[];
 
-  @Field(() => PageInfo)
-  pageInfo!: PageInfo;
+  @Field(() => MessagePageInfo)
+  pageInfo!: MessagePageInfo;
 }

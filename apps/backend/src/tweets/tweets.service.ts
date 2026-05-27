@@ -1,35 +1,27 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { TweetsEvents } from './tweets.events';
+import { TweetsRepository } from './tweets.repository';
 import { TweetConnection, TweetType } from './tweets.types';
-
-const tweetWithAuthor = {
-  author: {
-    select: {
-      id: true,
-      username: true,
-      avatarUrl: true,
-    },
-  },
-} as const;
 
 @Injectable()
 export class TweetsService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly events: DomainEventsService,
+    @Inject(TweetsRepository)
+    @Optional()
+    private readonly repository: TweetsRepository | undefined,
+    private readonly events: TweetsEvents,
   ) {}
 
   async findById(id: string): Promise<TweetType | null> {
-    return this.prisma.tweet.findUnique({
-      where: { id },
-      include: tweetWithAuthor,
-    });
+    return this.data.findById(id);
   }
 
   async findUserTweets(
@@ -38,12 +30,10 @@ export class TweetsService {
     limit = 20,
   ): Promise<TweetConnection> {
     const pageSize = this.validatePageSize(limit);
-    const tweets = await this.prisma.tweet.findMany({
-      where: { authorId: userId },
-      include: tweetWithAuthor,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    const tweets = await this.data.findUserTweets({
+      authorId: userId,
       take: pageSize + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      cursor,
     });
 
     const hasNextPage = tweets.length > pageSize;
@@ -59,24 +49,18 @@ export class TweetsService {
   }
 
   async create(authorId: string, content: string): Promise<TweetType> {
-    const tweet = await this.prisma.tweet.create({
-      data: {
-        authorId,
-        content: this.validateContent(content),
-      },
-      include: tweetWithAuthor,
-    });
+    const tweet = await this.data.create(
+      authorId,
+      this.validateContent(content),
+    );
 
-    this.events.emit('tweet.created', tweet);
+    this.events.emitCreated(tweet);
 
     return tweet;
   }
 
   async delete(authorId: string, tweetId: string): Promise<boolean> {
-    const tweet = await this.prisma.tweet.findUnique({
-      where: { id: tweetId },
-      select: { authorId: true },
-    });
+    const tweet = await this.data.findOwner(tweetId);
 
     if (!tweet) {
       throw new NotFoundException('Tweet not found');
@@ -86,7 +70,7 @@ export class TweetsService {
       throw new ForbiddenException('You can only delete your own tweets');
     }
 
-    await this.prisma.tweet.delete({ where: { id: tweetId } });
+    await this.data.delete(tweetId);
 
     return true;
   }
@@ -113,5 +97,15 @@ export class TweetsService {
     }
 
     return limit;
+  }
+
+  private get data(): TweetsRepository {
+    if (!this.repository) {
+      throw new ServiceUnavailableException(
+        'Tweets repository has not been connected',
+      );
+    }
+
+    return this.repository;
   }
 }

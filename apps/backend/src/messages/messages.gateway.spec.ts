@@ -1,11 +1,10 @@
 import { Server, Socket } from 'socket.io';
-import { JwtAuthService } from '../auth/jwt-auth.service';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { MessageSentEvent } from '../common/events/domain-events.types';
+import { MessagesEvents } from './messages.events';
 import { MessagesGateway } from './messages.gateway';
+import { MessageType } from './messages.types';
 
 describe('MessagesGateway', () => {
-  const message: MessageSentEvent = {
+  const message: MessageType = {
     id: 'message-1',
     content: 'Hello',
     senderId: 'user-1',
@@ -16,28 +15,21 @@ describe('MessagesGateway', () => {
   };
 
   let gateway: MessagesGateway;
-  let jwtAuthService: { authenticateSocketToken: jest.Mock };
-  let events: DomainEventsService;
+  let events: MessagesEvents;
 
   beforeEach(() => {
-    jwtAuthService = { authenticateSocketToken: jest.fn() };
-    events = new DomainEventsService();
-    gateway = new MessagesGateway(
-      jwtAuthService as unknown as JwtAuthService,
-      events,
-    );
+    events = new MessagesEvents();
+    gateway = new MessagesGateway(events);
   });
 
-  it('joins an authenticated socket to its private room', () => {
+  it('joins a socket authenticated by the shared socket middleware', () => {
     const join = jest.fn();
     const disconnect = jest.fn();
     const client = {
-      handshake: { auth: { token: 'token' }, headers: {} },
-      data: {},
+      data: { user: { id: 'user-1' } },
       join,
       disconnect,
     } as unknown as Socket;
-    jwtAuthService.authenticateSocketToken.mockReturnValue({ id: 'user-1' });
 
     gateway.handleConnection(client);
 
@@ -45,18 +37,13 @@ describe('MessagesGateway', () => {
     expect(disconnect).not.toHaveBeenCalled();
   });
 
-  it('disconnects an unauthenticated socket', () => {
+  it('disconnects a socket with no authenticated user context', () => {
     const disconnect = jest.fn();
     const client = {
-      handshake: { auth: {}, headers: {} },
       data: {},
       join: jest.fn(),
       disconnect,
     } as unknown as Socket;
-    jwtAuthService.authenticateSocketToken.mockImplementation(() => {
-      throw new Error('invalid');
-    });
-
     gateway.handleConnection(client);
 
     expect(disconnect).toHaveBeenCalledWith(true);
@@ -68,7 +55,7 @@ describe('MessagesGateway', () => {
     gateway.server = { to } as unknown as Server;
     gateway.onModuleInit();
 
-    events.emit('message.sent', message);
+    events.emitSent(message);
     await Promise.resolve();
 
     expect(to).toHaveBeenNthCalledWith(1, 'user:user-2');

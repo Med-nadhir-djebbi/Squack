@@ -1,6 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { TweetsEvents } from './tweets.events';
 import { TweetsService } from './tweets.service';
 
 describe('TweetsService', () => {
@@ -19,65 +18,56 @@ describe('TweetsService', () => {
   };
 
   let service: TweetsService;
-  let prisma: {
-    tweet: {
-      create: jest.Mock;
-      delete: jest.Mock;
-      findMany: jest.Mock;
-      findUnique: jest.Mock;
-    };
+  let repository: {
+    create: jest.Mock;
+    delete: jest.Mock;
+    findById: jest.Mock;
+    findOwner: jest.Mock;
+    findUserTweets: jest.Mock;
   };
-  let events: { emit: jest.Mock };
+  let events: { emitCreated: jest.Mock };
 
   beforeEach(() => {
-    prisma = {
-      tweet: {
-        create: jest.fn(),
-        delete: jest.fn(),
-        findMany: jest.fn(),
-        findUnique: jest.fn(),
-      },
+    repository = {
+      create: jest.fn(),
+      delete: jest.fn(),
+      findById: jest.fn(),
+      findOwner: jest.fn(),
+      findUserTweets: jest.fn(),
     };
-    events = { emit: jest.fn() };
-    service = new TweetsService(
-      prisma as unknown as PrismaService,
-      events as unknown as DomainEventsService,
-    );
+    events = { emitCreated: jest.fn() };
+    service = new TweetsService(repository, events as unknown as TweetsEvents);
   });
 
   it('creates a trimmed tweet and emits an event after storage', async () => {
-    prisma.tweet.create.mockResolvedValue(tweet);
+    repository.create.mockResolvedValue(tweet);
 
     await expect(service.create('user-1', '  Hello Squack  ')).resolves.toBe(
       tweet,
     );
-    expect(prisma.tweet.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: { authorId: 'user-1', content: 'Hello Squack' },
-      }),
-    );
-    expect(events.emit).toHaveBeenCalledWith('tweet.created', tweet);
+    expect(repository.create).toHaveBeenCalledWith('user-1', 'Hello Squack');
+    expect(events.emitCreated).toHaveBeenCalledWith(tweet);
   });
 
   it('rejects tweets longer than 280 characters before storage', async () => {
     await expect(service.create('user-1', 'x'.repeat(281))).rejects.toThrow(
       BadRequestException,
     );
-    expect(prisma.tweet.create).not.toHaveBeenCalled();
-    expect(events.emit).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
+    expect(events.emitCreated).not.toHaveBeenCalled();
   });
 
   it('does not allow another user to delete a tweet', async () => {
-    prisma.tweet.findUnique.mockResolvedValue({ authorId: 'user-2' });
+    repository.findOwner.mockResolvedValue({ authorId: 'user-2' });
 
     await expect(service.delete('user-1', 'tweet-1')).rejects.toThrow(
       ForbiddenException,
     );
-    expect(prisma.tweet.delete).not.toHaveBeenCalled();
+    expect(repository.delete).not.toHaveBeenCalled();
   });
 
   it('returns cursor pagination metadata for a user timeline', async () => {
-    prisma.tweet.findMany.mockResolvedValue([
+    repository.findUserTweets.mockResolvedValue([
       tweet,
       { ...tweet, id: 'tweet-2' },
     ]);

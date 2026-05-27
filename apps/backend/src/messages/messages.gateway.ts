@@ -5,13 +5,13 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import type { AuthenticatedUser } from '../auth/auth.types';
-import { JwtAuthService } from '../auth/jwt-auth.service';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { MessageSentEvent } from '../common/events/domain-events.types';
+import { MessagesEvents } from './messages.events';
+import { MessageType } from './messages.types';
 
 interface MessagesSocketData {
-  user?: AuthenticatedUser;
+  user?: {
+    id?: string;
+  };
 }
 
 @WebSocketGateway({
@@ -27,7 +27,7 @@ export class MessagesGateway
   @WebSocketServer()
   server!: Server;
 
-  private readonly deliverMessage = (message: MessageSentEvent): void => {
+  private readonly deliverMessage = (message: MessageType): void => {
     this.server
       .to(`user:${message.receiverId}`)
       .emit('message.received', message);
@@ -36,31 +36,25 @@ export class MessagesGateway
       .emit('message.sent.confirmed', message);
   };
 
-  constructor(
-    private readonly jwtAuthService: JwtAuthService,
-    private readonly events: DomainEventsService,
-  ) {}
+  constructor(private readonly events: MessagesEvents) {}
 
   onModuleInit(): void {
-    this.events.on('message.sent', this.deliverMessage);
+    this.events.onSent(this.deliverMessage);
   }
 
   onModuleDestroy(): void {
-    this.events.off('message.sent', this.deliverMessage);
+    this.events.offSent(this.deliverMessage);
   }
 
   handleConnection(client: Socket): void {
-    try {
-      const handshakeAuth = client.handshake.auth as { token?: unknown };
-      const token =
-        handshakeAuth.token ?? client.handshake.headers.authorization;
-      const user = this.jwtAuthService.authenticateSocketToken(token);
-      const socketData = client.data as MessagesSocketData;
+    const socketData = client.data as MessagesSocketData;
+    const userId = socketData.user?.id;
 
-      socketData.user = user;
-      void client.join(`user:${user.id}`);
-    } catch {
+    if (!userId) {
       client.disconnect(true);
+      return;
     }
+
+    void client.join(`user:${userId}`);
   }
 }

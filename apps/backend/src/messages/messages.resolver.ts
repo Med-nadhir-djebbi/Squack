@@ -1,8 +1,13 @@
-import { UseGuards } from '@nestjs/common';
-import { Args, ID, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
-import type { AuthenticatedUser } from '../auth/auth.types';
-import { CurrentUser } from '../auth/current-user.decorator';
-import { GqlAuthGuard } from '../auth/gql-auth.guard';
+import { UnauthorizedException } from '@nestjs/common';
+import {
+  Args,
+  Context,
+  ID,
+  Int,
+  Mutation,
+  Query,
+  Resolver,
+} from '@nestjs/graphql';
 import {
   MessageConnection,
   MessageType,
@@ -10,21 +15,28 @@ import {
 } from './messages.types';
 import { MessagesService } from './messages.service';
 
+interface MessagesRequestContext {
+  req: {
+    user?: {
+      id?: string;
+    };
+  };
+}
+
 @Resolver(() => MessageType)
 export class MessagesResolver {
   constructor(private readonly messagesService: MessagesService) {}
 
   @Query(() => MessageConnection)
-  @UseGuards(GqlAuthGuard)
   conversation(
-    @CurrentUser() user: AuthenticatedUser,
+    @Context() context: MessagesRequestContext,
     @Args('withUserId', { type: () => ID }) withUserId: string,
     @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 30 })
     limit?: number,
   ): Promise<MessageConnection> {
     return this.messagesService.findConversation(
-      user.id,
+      this.requireUserId(context),
       withUserId,
       cursor,
       limit,
@@ -32,11 +44,24 @@ export class MessagesResolver {
   }
 
   @Mutation(() => MessageType)
-  @UseGuards(GqlAuthGuard)
   sendMessage(
-    @CurrentUser() user: AuthenticatedUser,
+    @Context() context: MessagesRequestContext,
     @Args('input') input: SendMessageInput,
   ): Promise<MessageType> {
-    return this.messagesService.send(user.id, input.receiverId, input.content);
+    return this.messagesService.send(
+      this.requireUserId(context),
+      input.receiverId,
+      input.content,
+    );
+  }
+
+  private requireUserId(context: MessagesRequestContext): string {
+    const userId = context.req.user?.id;
+
+    if (!userId) {
+      throw new UnauthorizedException('Authentication is required');
+    }
+
+    return userId;
   }
 }

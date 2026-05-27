@@ -1,6 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { DomainEventsService } from '../common/events/domain-events.service';
-import { PrismaService } from '../prisma/prisma.service';
+import { MessagesEvents } from './messages.events';
 import { MessagesService } from './messages.service';
 
 describe('MessagesService', () => {
@@ -16,64 +15,55 @@ describe('MessagesService', () => {
   };
 
   let service: MessagesService;
-  let prisma: {
-    message: { create: jest.Mock; findMany: jest.Mock };
-    user: { findFirst: jest.Mock };
+  let repository: {
+    create: jest.Mock;
+    findConversation: jest.Mock;
+    receiverExists: jest.Mock;
   };
-  let events: { emit: jest.Mock };
+  let events: { emitSent: jest.Mock };
 
   beforeEach(() => {
-    prisma = {
-      message: {
-        create: jest.fn(),
-        findMany: jest.fn(),
-      },
-      user: { findFirst: jest.fn() },
+    repository = {
+      create: jest.fn(),
+      findConversation: jest.fn(),
+      receiverExists: jest.fn(),
     };
-    events = { emit: jest.fn() };
+    events = { emitSent: jest.fn() };
     service = new MessagesService(
-      prisma as unknown as PrismaService,
-      events as unknown as DomainEventsService,
+      repository,
+      events as unknown as MessagesEvents,
     );
   });
 
   it('stores a direct message and emits it for realtime delivery', async () => {
-    prisma.user.findFirst.mockResolvedValue({ id: 'user-2' });
-    prisma.message.create.mockResolvedValue(message);
+    repository.receiverExists.mockResolvedValue(true);
+    repository.create.mockResolvedValue(message);
 
     await expect(service.send('user-1', 'user-2', '  Hello  ')).resolves.toBe(
       message,
     );
-    expect(prisma.message.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: {
-          senderId: 'user-1',
-          receiverId: 'user-2',
-          content: 'Hello',
-        },
-      }),
-    );
-    expect(events.emit).toHaveBeenCalledWith('message.sent', message);
+    expect(repository.create).toHaveBeenCalledWith('user-1', 'user-2', 'Hello');
+    expect(events.emitSent).toHaveBeenCalledWith(message);
   });
 
   it('rejects a message addressed to the sender', async () => {
     await expect(service.send('user-1', 'user-1', 'Hello')).rejects.toThrow(
       BadRequestException,
     );
-    expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
   });
 
   it('rejects a message addressed to a missing user', async () => {
-    prisma.user.findFirst.mockResolvedValue(null);
+    repository.receiverExists.mockResolvedValue(false);
 
     await expect(service.send('user-1', 'missing', 'Hello')).rejects.toThrow(
       NotFoundException,
     );
-    expect(prisma.message.create).not.toHaveBeenCalled();
+    expect(repository.create).not.toHaveBeenCalled();
   });
 
   it('returns both sides of a cursor-paginated conversation', async () => {
-    prisma.message.findMany.mockResolvedValue([
+    repository.findConversation.mockResolvedValue([
       message,
       { ...message, id: 'message-2' },
     ]);
@@ -84,15 +74,11 @@ describe('MessagesService', () => {
       nodes: [message],
       pageInfo: { hasNextPage: true, nextCursor: 'message-1' },
     });
-    expect(prisma.message.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          OR: [
-            { senderId: 'user-1', receiverId: 'user-2' },
-            { senderId: 'user-2', receiverId: 'user-1' },
-          ],
-        },
-      }),
-    );
+    expect(repository.findConversation).toHaveBeenCalledWith({
+      userId: 'user-1',
+      withUserId: 'user-2',
+      cursor: undefined,
+      take: 2,
+    });
   });
 });

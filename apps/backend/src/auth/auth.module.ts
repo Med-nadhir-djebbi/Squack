@@ -12,7 +12,7 @@ import { jwtSecret } from './auth.constants';
     UsersModule,
     PassportModule,
     JwtModule.register({
-      secret: jwtSecret,
+      secret: process.env.JWT_SECRET ?? 'kaissaidisthebest',
     }),
   ],
   providers: [AuthService, AuthResolver, JwtStrategy],

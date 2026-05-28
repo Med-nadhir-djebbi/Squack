@@ -25,4 +25,4 @@ yarn-error.log*
 # OS and editor files
 .DS_Store
 .vscode/
-.idea/
+.idea/apps/backend/prisma/dev.db

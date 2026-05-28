@@ -96,8 +96,11 @@ type Query {
   tweets(cursor: ID, limit: Int = 20): TweetConnection!
   userTweets(userId: ID!, cursor: ID, limit: Int = 20): TweetConnection!
   conversation(withUserId: ID!, cursor: ID, limit: Int = 30): MessageConnection!
+<<<<<<< HEAD
   followers(userId: ID!): [UserModel!]!
   following(userId: ID!): [UserModel!]!
+=======
+>>>>>>> 48f9c4c (testing)
 }
 
 type Mutation {
@@ -109,8 +112,11 @@ type Mutation {
   reactToTweet(input: ReactToTweetInput!): Tweet!
   removeTweetReaction(tweetId: ID!): Tweet!
   sendMessage(input: SendMessageInput!): Message!
+<<<<<<< HEAD
   follow(userId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
+=======
+>>>>>>> 48f9c4c (testing)
 }
 
 input RegisterInput {

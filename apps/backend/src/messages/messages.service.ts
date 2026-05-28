@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesEvents } from './messages.events';
 import { MessageConnection, MessageType } from './messages.types';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const messageWithUsers = {
   sender: {
@@ -29,6 +31,7 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: MessagesEvents,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findConversation(
@@ -95,6 +98,12 @@ export class MessagesService {
     });
 
     this.events.emitSent(message);
+
+    await this.notifications.createNotification(
+      receiverId,
+      NotificationType.MESSAGE,
+      `@${message.sender.username} sent you a message`,
+    );
 
     return message;
   }

@@ -31,6 +31,17 @@ export class TweetsResolver {
   }
 
   @Query(() => TweetConnection)
+  @UseGuards(GqlAuthGuard)
+  feed(
+    @Context() context: { req: { user: UserModel } },
+    @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 })
+    limit?: number,
+  ): Promise<TweetConnection> {
+    return this.tweetsService.getFeed(context.req.user.id, cursor, limit);
+  }
+
+  @Query(() => TweetConnection)
   userTweets(
     @Args('userId', { type: () => ID }) userId: string,
     @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,

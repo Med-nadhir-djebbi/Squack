@@ -62,6 +62,21 @@ type TweetConnection {
   pageInfo: TweetPageInfo!
 }
 
+type NotificationModel {
+  id: ID!
+  type: NotificationType!
+  message: String!
+  isRead: Boolean!
+  userId: ID!
+  createdAt: DateTime!
+}
+
+enum NotificationType {
+  FOLLOW
+  MESSAGE
+  TWEET
+}
+
 type MessageParticipant {
   id: ID!
   username: String!
@@ -94,13 +109,12 @@ type Query {
   users: [UserModel!]!
   tweet(id: ID!): Tweet
   tweets(cursor: ID, limit: Int = 20): TweetConnection!
+  feed(cursor: ID, limit: Int = 20): TweetConnection!
   userTweets(userId: ID!, cursor: ID, limit: Int = 20): TweetConnection!
+  notifications: [NotificationModel!]!
   conversation(withUserId: ID!, cursor: ID, limit: Int = 30): MessageConnection!
-<<<<<<< HEAD
   followers(userId: ID!): [UserModel!]!
   following(userId: ID!): [UserModel!]!
-=======
->>>>>>> 48f9c4c (testing)
 }
 
 type Mutation {
@@ -111,12 +125,11 @@ type Mutation {
   deleteTweet(id: ID!): Boolean!
   reactToTweet(input: ReactToTweetInput!): Tweet!
   removeTweetReaction(tweetId: ID!): Tweet!
+  markNotificationAsRead(id: ID!): Boolean!
+  markAllNotificationsAsRead: Boolean!
   sendMessage(input: SendMessageInput!): Message!
-<<<<<<< HEAD
   follow(userId: ID!): Boolean!
   unfollow(userId: ID!): Boolean!
-=======
->>>>>>> 48f9c4c (testing)
 }
 
 input RegisterInput {

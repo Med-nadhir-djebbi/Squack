@@ -1,8 +1,9 @@
 import {BadRequestException,ForbiddenException,Injectable,NotFoundException,} from '@nestjs/common';
-import { TweetReactionKind } from '@prisma/client';
+import { NotificationType, TweetReactionKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TweetsEvents } from './tweets.events';
 import { TweetConnection, TweetType } from './tweets.types';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const tweetDetails = {
   author: {
@@ -38,6 +39,7 @@ export class TweetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: TweetsEvents,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findById(id: string): Promise<TweetType | null> {
@@ -96,6 +98,46 @@ export class TweetsService {
     };
   }
 
+  async getFeed(
+    userId: string,
+    cursor?: string,
+    limit = 20,
+  ): Promise<TweetConnection> {
+    const pageSize = this.validatePageSize(limit);
+
+    // Get IDs of users being followed
+    const followed = await this.prisma.follow.findMany({
+      where: { followerId: userId },
+      select: { followingId: true },
+    });
+
+    const followingIds = followed.map((f) => f.followingId);
+
+    // Include the user's own tweets in their feed
+    const authorIds = [...followingIds, userId];
+
+    const tweets = await this.prisma.tweet.findMany({
+      where: {
+        authorId: { in: authorIds },
+      },
+      include: tweetDetails,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+
+    const hasNextPage = tweets.length > pageSize;
+    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
+
+    return {
+      nodes,
+      pageInfo: {
+        hasNextPage,
+        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
+      },
+    };
+  }
+
   async create(authorId: string, content: string): Promise<TweetType> {
     const storedTweet = await this.prisma.tweet.create({
       data: {
@@ -107,6 +149,20 @@ export class TweetsService {
     const tweet = this.toTweet(storedTweet);
 
     this.events.emitCreated(tweet);
+
+    // Notify followers
+    const followers = await this.prisma.follow.findMany({
+      where: { followingId: authorId },
+      select: { followerId: true },
+    });
+
+    for (const f of followers) {
+      await this.notifications.createNotification(
+        f.followerId,
+        NotificationType.TWEET,
+        `@${tweet.author.username} posted a new tweet: ${tweet.content.substring(0, 30)}${tweet.content.length > 30 ? '...' : ''}`,
+      );
+    }
 
     return tweet;
   }

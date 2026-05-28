@@ -23,7 +23,7 @@ export class AuthResolver {
 
   @Query(() => UserModel)
   @UseGuards(GqlAuthGuard)
-  me(@Context() context: { req: { user: UserModel } }) {
+  async me(@Context() context: { req: { user: UserModel } }) {
     return context.req.user;
   }
 }

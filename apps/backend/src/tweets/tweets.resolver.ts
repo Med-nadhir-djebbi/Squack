@@ -28,6 +28,16 @@ export class TweetsResolver {
   }
 
   @Query(() => TweetConnection)
+  @UseGuards(GqlAuthGuard)
+  tweets(
+    @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 })
+    limit?: number,
+  ): Promise<TweetConnection> {
+    return this.tweetsService.findAll(cursor, limit);
+  }
+
+  @Query(() => TweetConnection)
   userTweets(
     @Args('userId', { type: () => ID }) userId: string,
     @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,

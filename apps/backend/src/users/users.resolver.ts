@@ -14,6 +14,12 @@ export class UsersResolver {
     return this.usersService.findById(id);
   }
 
+  @Query(() => [UserModel])
+  @UseGuards(GqlAuthGuard)
+  users(@Context() context: { req: { user: UserModel } }) {
+    return this.usersService.findAll(context.req.user.id);
+  }
+
   @Mutation(() => UserModel)
   @UseGuards(GqlAuthGuard)
   updateProfile(

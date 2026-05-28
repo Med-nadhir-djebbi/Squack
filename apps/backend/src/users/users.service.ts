@@ -26,6 +26,25 @@ export class UsersService {
     return user;
   }
 
+  async findAll(excludeUserId?: string) {
+    return this.prisma.user.findMany({
+      where: {
+        isDeleted: false,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      orderBy: { username: 'asc' },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        bio: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
   async findByEmail(email: string) {
     return this.prisma.user.findFirst({ where: { email, isDeleted: false } });
   }

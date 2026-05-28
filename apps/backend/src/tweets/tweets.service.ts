@@ -54,6 +54,27 @@ export class TweetsService {
     return tweet ? this.toTweet(tweet) : null;
   }
 
+  async findAll(cursor?: string, limit = 20): Promise<TweetConnection> {
+    const pageSize = this.validatePageSize(limit);
+    const tweets = await this.prisma.tweet.findMany({
+      include: tweetDetails,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+
+    const hasNextPage = tweets.length > pageSize;
+    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
+
+    return {
+      nodes,
+      pageInfo: {
+        hasNextPage,
+        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
+      },
+    };
+  }
+
   async findUserTweets(
     userId: string,
     cursor?: string,

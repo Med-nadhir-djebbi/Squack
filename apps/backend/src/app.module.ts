@@ -10,11 +10,11 @@ import { MessagesModule } from './messages/messages.module';
 import { FollowsModule } from './follows/follows.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
-
+import { join } from 'path';
 @Module({
   imports: [
     GraphQLModule.forRoot<ApolloDriverConfig>({
-      autoSchemaFile: true,
+      autoSchemaFile: join(process.cwd(), 'src/schema.gql'),
       driver: ApolloDriver,
       context: ({ req }) => ({ req }),
     }),

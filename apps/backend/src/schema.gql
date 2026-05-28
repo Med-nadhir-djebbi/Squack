@@ -1,0 +1,139 @@
+# ------------------------------------------------------
+# THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+# ------------------------------------------------------
+
+type UserModel {
+  id: String!
+  username: String!
+  email: String!
+  bio: String
+  avatarUrl: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
+"""
+scalar DateTime
+
+type AuthPayload {
+  accessToken: String!
+  user: UserModel!
+}
+
+type TweetAuthor {
+  id: ID!
+  username: String!
+  avatarUrl: String
+}
+
+type TweetPageInfo {
+  nextCursor: String
+  hasNextPage: Boolean!
+}
+
+type Tweet {
+  id: ID!
+  content: String!
+  authorId: ID!
+  author: TweetAuthor!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  reactionCount: Int!
+  reactionCounts: [TweetReactionCount!]!
+}
+
+type TweetReactionCount {
+  kind: TweetReactionKind!
+  count: Int!
+}
+
+enum TweetReactionKind {
+  LIKE
+  LOVE
+  LAUGH
+  WOW
+  SAD
+}
+
+type TweetConnection {
+  nodes: [Tweet!]!
+  pageInfo: TweetPageInfo!
+}
+
+type MessageParticipant {
+  id: ID!
+  username: String!
+  avatarUrl: String
+}
+
+type MessagePageInfo {
+  nextCursor: String
+  hasNextPage: Boolean!
+}
+
+type Message {
+  id: ID!
+  content: String!
+  senderId: ID!
+  receiverId: ID!
+  sender: MessageParticipant!
+  receiver: MessageParticipant!
+  createdAt: DateTime!
+}
+
+type MessageConnection {
+  nodes: [Message!]!
+  pageInfo: MessagePageInfo!
+}
+
+type Query {
+  me: UserModel!
+  user(id: String!): UserModel!
+  users: [UserModel!]!
+  tweet(id: ID!): Tweet
+  tweets(cursor: ID, limit: Int = 20): TweetConnection!
+  userTweets(userId: ID!, cursor: ID, limit: Int = 20): TweetConnection!
+  conversation(withUserId: ID!, cursor: ID, limit: Int = 30): MessageConnection!
+  followers(userId: ID!): [UserModel!]!
+  following(userId: ID!): [UserModel!]!
+}
+
+type Mutation {
+  register(input: RegisterInput!): AuthPayload!
+  login(input: LoginInput!): AuthPayload!
+  updateProfile(bio: String, avatarUrl: String): UserModel!
+  createTweet(input: CreateTweetInput!): Tweet!
+  deleteTweet(id: ID!): Boolean!
+  reactToTweet(input: ReactToTweetInput!): Tweet!
+  removeTweetReaction(tweetId: ID!): Tweet!
+  sendMessage(input: SendMessageInput!): Message!
+  follow(userId: ID!): Boolean!
+  unfollow(userId: ID!): Boolean!
+}
+
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+input CreateTweetInput {
+  content: String!
+}
+
+input ReactToTweetInput {
+  tweetId: ID!
+  kind: TweetReactionKind!
+}
+
+input SendMessageInput {
+  receiverId: ID!
+  content: String!
+}

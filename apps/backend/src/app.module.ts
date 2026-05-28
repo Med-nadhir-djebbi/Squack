@@ -25,6 +25,7 @@ import { join } from 'path';
     FollowsModule,
     NotificationsModule,
     PrismaModule,
+    FollowsModule
   ],
   controllers: [AppController],
   providers: [AppService],

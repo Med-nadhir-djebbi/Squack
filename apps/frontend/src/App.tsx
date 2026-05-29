@@ -10,11 +10,14 @@ import {
   useLocation,
   useParams,
 } from 'react-router-dom'
+import { io } from 'socket.io-client'
 import './App.css'
 
 const TOKEN_KEY = 'squack_access_token'
 const GRAPHQL_URL =
   import.meta.env.VITE_GRAPHQL_URL ?? 'http://localhost:3000/graphql'
+const MESSAGES_SOCKET_URL =
+  import.meta.env.VITE_MESSAGES_SOCKET_URL ?? 'http://localhost:3000/messages'
 
 type IconName =
   | 'home'
@@ -372,6 +375,29 @@ function formatTime(value: string) {
   }
 
   return `${Math.floor(diffMs / day)}d`
+}
+
+function messageBelongsToThread(
+  message: Message,
+  viewerId: string,
+  participantId: string,
+) {
+  return (
+    (message.senderId === viewerId && message.receiverId === participantId) ||
+    (message.senderId === participantId && message.receiverId === viewerId)
+  )
+}
+
+function upsertMessage(messages: Message[], nextMessage: Message) {
+  const existingIndex = messages.findIndex((message) => message.id === nextMessage.id)
+
+  if (existingIndex === -1) {
+    return [...messages, nextMessage]
+  }
+
+  return messages.map((message, index) =>
+    index === existingIndex ? nextMessage : message,
+  )
 }
 
 function Icon({ name }: { name: IconName }) {
@@ -881,6 +907,9 @@ function MessageThreadPage({
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>(
+    'connecting',
+  )
 
   useEffect(() => {
     if (!participant) {
@@ -920,6 +949,42 @@ function MessageThreadPage({
     }
   }, [participant, token])
 
+  useEffect(() => {
+    if (!participant) {
+      return
+    }
+
+    setLiveStatus('connecting')
+    const participantId = participant.id
+
+    const socket = io(MESSAGES_SOCKET_URL, {
+      auth: { token },
+    })
+
+    function handleLiveMessage(message: Message) {
+      if (!messageBelongsToThread(message, viewer.id, participantId)) {
+        return
+      }
+
+      setMessages((currentMessages) => upsertMessage(currentMessages, message))
+    }
+
+    socket.on('connect', () => setLiveStatus('live'))
+    socket.on('disconnect', () => setLiveStatus('offline'))
+    socket.on('connect_error', () => setLiveStatus('offline'))
+    socket.on('message.received', handleLiveMessage)
+    socket.on('message.sent.confirmed', handleLiveMessage)
+
+    return () => {
+      socket.off('connect')
+      socket.off('disconnect')
+      socket.off('connect_error')
+      socket.off('message.received', handleLiveMessage)
+      socket.off('message.sent.confirmed', handleLiveMessage)
+      socket.disconnect()
+    }
+  }, [participant, token, viewer.id])
+
   if (!participant) {
     return <Navigate to="/messages" replace />
   }
@@ -940,7 +1005,9 @@ function MessageThreadPage({
         { input: { receiverId: activeParticipant.id, content } },
         token,
       )
-      setMessages((currentMessages) => [...currentMessages, data.sendMessage])
+      setMessages((currentMessages) =>
+        upsertMessage(currentMessages, data.sendMessage),
+      )
       setDraft('')
       setError('')
     } catch (sendError) {
@@ -957,9 +1024,18 @@ function MessageThreadPage({
           title: activeParticipant.username,
         }}
         action={
-          <Link className="text-link" to="/messages">
-            Back
-          </Link>
+          <div className="thread-actions">
+            <span className={`live-pill live-${liveStatus}`}>
+              {liveStatus === 'live'
+                ? 'Live'
+                : liveStatus === 'connecting'
+                  ? 'Connecting'
+                  : 'Offline'}
+            </span>
+            <Link className="text-link" to="/messages">
+              Back
+            </Link>
+          </div>
         }
       />
 

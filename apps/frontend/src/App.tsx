@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import {
   BrowserRouter,
@@ -9,13 +9,18 @@ import {
   Routes,
   useLocation,
   useParams,
+  useNavigate,
 } from 'react-router-dom'
 import { io } from 'socket.io-client'
+import type { Socket } from 'socket.io-client'
 import './App.css'
 
 const TOKEN_KEY = 'squack_access_token'
 const GRAPHQL_URL =
   import.meta.env.VITE_GRAPHQL_URL ?? 'http://localhost:3000/graphql'
+const API_URL = (
+  import.meta.env.VITE_API_URL ?? GRAPHQL_URL.replace(/\/graphql\/?$/, '')
+).replace(/\/$/, '')
 const MESSAGES_SOCKET_URL =
   import.meta.env.VITE_MESSAGES_SOCKET_URL ?? 'http://localhost:3000/messages'
 
@@ -82,6 +87,17 @@ type Message = {
   createdAt: string
 }
 
+type NotificationType = 'FOLLOW' | 'MESSAGE' | 'TWEET'
+
+type Notification = {
+  id: string
+  type: NotificationType
+  message: string
+  isRead: boolean
+  userId: string
+  createdAt: string
+}
+
 type AuthPayload = {
   accessToken: string
   user: User
@@ -103,6 +119,12 @@ type GraphQLError = {
 type GraphQLResponse<T> = {
   data?: T
   errors?: GraphQLError[]
+}
+
+type AuthRequestOptions = {
+  method?: 'GET' | 'POST'
+  body?: unknown
+  token?: string | null
 }
 
 const navigation: PageMeta[] = [
@@ -215,34 +237,13 @@ const MESSAGE_FIELDS = `
   }
 `
 
-const LOGIN_MUTATION = `
-  mutation Login($input: LoginInput!) {
-    login(input: $input) {
-      accessToken
-      user {
-        ${USER_FIELDS}
-      }
-    }
-  }
-`
-
-const REGISTER_MUTATION = `
-  mutation Register($input: RegisterInput!) {
-    register(input: $input) {
-      accessToken
-      user {
-        ${USER_FIELDS}
-      }
-    }
-  }
-`
-
-const ME_QUERY = `
-  query Me {
-    me {
-      ${USER_FIELDS}
-    }
-  }
+const NOTIFICATION_FIELDS = `
+  id
+  type
+  message
+  isRead
+  userId
+  createdAt
 `
 
 const USERS_QUERY = `
@@ -256,6 +257,16 @@ const USERS_QUERY = `
 const TWEETS_QUERY = `
   query Tweets {
     tweets(limit: 50) {
+      nodes {
+        ${TWEET_FIELDS}
+      }
+    }
+  }
+`
+
+const FEED_QUERY = `
+  query Feed {
+    feed(limit: 50) {
       nodes {
         ${TWEET_FIELDS}
       }
@@ -297,6 +308,46 @@ const SEND_MESSAGE_MUTATION = `
   }
 `
 
+const FOLLOW_MUTATION = `
+  mutation Follow($userId: ID!) {
+    follow(userId: $userId)
+  }
+`
+
+const UNFOLLOW_MUTATION = `
+  mutation Unfollow($userId: ID!) {
+    unfollow(userId: $userId)
+  }
+`
+
+const FOLLOWING_QUERY = `
+  query Following($userId: ID!) {
+    following(userId: $userId) {
+      id
+    }
+  }
+`
+
+const NOTIFICATIONS_QUERY = `
+  query Notifications {
+    notifications {
+      ${NOTIFICATION_FIELDS}
+    }
+  }
+`
+
+const MARK_NOTIFICATIONS_AS_READ_MUTATION = `
+  mutation MarkAllNotificationsAsRead {
+    markAllNotificationsAsRead
+  }
+`
+
+const MARK_NOTIFICATION_AS_READ_MUTATION = `
+  mutation MarkNotificationAsRead($id: ID!) {
+    markNotificationAsRead(id: $id)
+  }
+`
+
 async function graphqlRequest<T>(
   query: string,
   variables: Record<string, unknown> = {},
@@ -326,6 +377,105 @@ async function graphqlRequest<T>(
   }
 
   return payload.data
+}
+
+function getAuthErrorMessage(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || !('message' in payload)) {
+    return null
+  }
+
+  const message = (payload as { message?: unknown }).message
+
+  if (Array.isArray(message)) {
+    return message.join('\n')
+  }
+
+  return typeof message === 'string' ? message : null
+}
+
+async function authRequest<T>(
+  path: string,
+  options: AuthRequestOptions = {},
+): Promise<T> {
+  const headers: Record<string, string> = {
+    ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    method: options.method ?? 'GET',
+    headers,
+    body:
+      options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+
+  const payload = (await response.json().catch(() => null)) as unknown
+
+  if (!response.ok) {
+    throw new Error(
+      getAuthErrorMessage(payload) ?? `Auth request failed with ${response.status}`,
+    )
+  }
+
+  return payload as T
+}
+
+type Toast = {
+  id: string
+  message: string
+  type: NotificationType
+  title: string
+  onClick?: () => void
+}
+
+function ToastItem({
+  toast,
+  onRemove,
+}: {
+  toast: Toast
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div
+      className="toast"
+      onClick={() => {
+        toast.onClick?.()
+        onRemove(toast.id)
+      }}
+    >
+      <div className="row-icon">
+        <Icon
+          name={
+            toast.type === 'MESSAGE'
+              ? 'message'
+              : toast.type === 'FOLLOW'
+                ? 'user'
+                : 'bell'
+          }
+        />
+      </div>
+      <div>
+        <p>{toast.title}</p>
+        <span>{toast.message}</span>
+      </div>
+    </div>
+  )
+}
+
+function ToastContainer({
+  toasts,
+  onRemove,
+}: {
+  toasts: Toast[]
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="toast-container">
+      {toasts.map((toast) => (
+        <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
+      ))}
+    </div>
+  )
 }
 
 function getErrorMessage(error: unknown) {
@@ -572,17 +722,17 @@ function AuthPage({ onAuthenticated }: { onAuthenticated: (payload: AuthPayload)
 
     try {
       if (mode === 'login') {
-        const data = await graphqlRequest<{ login: AuthPayload }>(
-          LOGIN_MUTATION,
-          { input: { email, password } },
-        )
-        onAuthenticated(data.login)
+        const data = await authRequest<AuthPayload>('/auth/login', {
+          method: 'POST',
+          body: { email, password },
+        })
+        onAuthenticated(data)
       } else {
-        const data = await graphqlRequest<{ register: AuthPayload }>(
-          REGISTER_MUTATION,
-          { input: { username, email, password } },
-        )
-        onAuthenticated(data.register)
+        const data = await authRequest<AuthPayload>('/auth/register', {
+          method: 'POST',
+          body: { username, email, password },
+        })
+        onAuthenticated(data)
       }
     } catch (submitError) {
       setError(getErrorMessage(submitError))
@@ -817,26 +967,55 @@ function HomePage({
     <>
       <PageHeader meta={pageByPath['/']} />
       <Composer draft={draft} onDraftChange={onDraftChange} onPublish={onPublish} />
-      <FeedList posts={posts} onReact={onReact} />
+      <FeedList posts={posts} onReact={onReact} label="Following timeline" />
     </>
   )
 }
 
-function ExplorePage({ users, posts }: { users: User[]; posts: Tweet[] }) {
+function ExplorePage({
+  users,
+  posts,
+  followingIds,
+  onFollow,
+  onUnfollow,
+}: {
+  users: User[]
+  posts: Tweet[]
+  followingIds: Set<string>
+  onFollow: (id: string) => void
+  onUnfollow: (id: string) => void
+}) {
   return (
     <>
       <PageHeader meta={pageByPath['/explore']} />
       <section className="page-stack">
         {users.length ? (
           users.map((user) => (
-            <Link className="list-row conversation-row" key={user.id} to={`/messages/${user.id}`}>
+            <div className="list-row conversation-row" key={user.id}>
               <Avatar label={initials(user.username)} tone={toneFor(user.id)} />
-              <div>
+              <div style={{ flex: 1 }}>
                 <strong>{user.username}</strong>
                 <p>{user.bio || 'Open a private conversation'}</p>
+                <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
+                  <Link className="text-link" to={`/messages/${user.id}`}>
+                    Message
+                  </Link>
+                  {followingIds.has(user.id) ? (
+                    <button
+                      className="text-link"
+                      onClick={() => onUnfollow(user.id)}
+                      style={{ color: 'var(--moss)' }}
+                    >
+                      Following
+                    </button>
+                  ) : (
+                    <button className="text-link" onClick={() => onFollow(user.id)}>
+                      Follow
+                    </button>
+                  )}
+                </div>
               </div>
-              <small>Message</small>
-            </Link>
+            </div>
           ))
         ) : (
           <EmptyState
@@ -851,35 +1030,95 @@ function ExplorePage({ users, posts }: { users: User[]; posts: Tweet[] }) {
   )
 }
 
-function AlertsPage() {
+function AlertsPage({
+  notifications,
+  onMarkAsRead,
+}: {
+  notifications: Notification[]
+  onMarkAsRead: () => void
+}) {
+  const unreadCount = notifications.filter((n) => !n.isRead).length
+
+  useEffect(() => {
+    if (unreadCount > 0) {
+      onMarkAsRead()
+    }
+  }, [unreadCount, onMarkAsRead])
+
   return (
     <>
       <PageHeader meta={pageByPath['/alerts']} />
-      <EmptyState
-        icon="bell"
-        title="No alerts yet"
-        body="Reactions and messages can be shown here once notification queries are added."
-      />
+      <section className="page-stack">
+        {notifications.length ? (
+          notifications.map((n) => (
+            <div className={`list-row ${n.isRead ? 'read' : 'unread'}`} key={n.id}>
+              <span className="row-icon">
+                <Icon
+                  name={
+                    n.type === 'FOLLOW' ? 'user' : n.type === 'MESSAGE' ? 'message' : 'send'
+                  }
+                />
+              </span>
+              <div>
+                <p>{n.message}</p>
+                <small>{formatTime(n.createdAt)}</small>
+              </div>
+            </div>
+          ))
+        ) : (
+          <EmptyState
+            icon="bell"
+            title="No alerts yet"
+            body="Follow people or wait for messages to see activity here."
+          />
+        )}
+      </section>
     </>
   )
 }
 
-function MessagesPage({ users }: { users: User[] }) {
+function MessagesPage({
+  users,
+  notifications,
+}: {
+  users: User[]
+  notifications: Notification[]
+}) {
   return (
     <>
       <PageHeader meta={pageByPath['/messages']} />
       <section className="page-stack">
         {users.length ? (
-          users.map((user) => (
-            <Link className="list-row conversation-row" key={user.id} to={`/messages/${user.id}`}>
-              <Avatar label={initials(user.username)} tone={toneFor(user.id)} />
-              <div>
-                <strong>{user.username}</strong>
-                <p>@{user.username} - Start or continue the conversation</p>
-              </div>
-              <small>Open</small>
-            </Link>
-          ))
+          users.map((user) => {
+            const hasUnread = notifications.some(
+              (n) =>
+                n.type === 'MESSAGE' &&
+                !n.isRead &&
+                n.message.includes(`@${user.username}`),
+            )
+            return (
+              <Link
+                className={`list-row conversation-row ${hasUnread ? 'unread' : ''}`}
+                key={user.id}
+                to={`/messages/${user.id}`}
+              >
+                <Avatar label={initials(user.username)} tone={toneFor(user.id)} />
+                <div>
+                  <strong>{user.username}</strong>
+                  <p style={hasUnread ? { fontWeight: 'bold', color: 'var(--ink)' } : {}}>
+                    @{user.username} - {hasUnread ? 'New message received' : 'Start or continue the conversation'}
+                  </p>
+                </div>
+                {hasUnread ? (
+                  <span className="notification-badge" style={{ position: 'static' }}>
+                    1
+                  </span>
+                ) : (
+                  <small>Open</small>
+                )}
+              </Link>
+            )
+          })
         ) : (
           <EmptyState
             icon="message"
@@ -896,10 +1135,14 @@ function MessageThreadPage({
   users,
   viewer,
   token,
+  notifications,
+  onMarkAsRead,
 }: {
   users: User[]
   viewer: User
   token: string
+  notifications: Notification[]
+  onMarkAsRead: (id: string) => void
 }) {
   const { userId } = useParams()
   const participant = users.find((user) => user.id === userId)
@@ -910,6 +1153,21 @@ function MessageThreadPage({
   const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>(
     'connecting',
   )
+
+  useEffect(() => {
+    if (!participant) return
+
+    const unreadMessageNotifications = notifications.filter(
+      (n) =>
+        n.type === 'MESSAGE' &&
+        !n.isRead &&
+        n.message.includes(`@${participant.username}`),
+    )
+
+    for (const n of unreadMessageNotifications) {
+      onMarkAsRead(n.id)
+    }
+  }, [participant, notifications, onMarkAsRead])
 
   useEffect(() => {
     if (!participant) {
@@ -944,8 +1202,33 @@ function MessageThreadPage({
 
     loadConversation()
 
+    const handleMessage = (e: any) => {
+      const message = e.detail
+      if (message.senderId === participantId || message.receiverId === participantId) {
+        setMessages((prev) => {
+          if (prev.find((m) => m.id === message.id)) return prev
+          return [...prev, message]
+        })
+      }
+    }
+
+    const handleConfirmed = (e: any) => {
+      const message = e.detail
+      if (message.senderId === participantId || message.receiverId === participantId) {
+        setMessages((prev) => {
+          if (prev.find((m) => m.id === message.id)) return prev
+          return [...prev, message]
+        })
+      }
+    }
+
+    window.addEventListener('squack:message', handleMessage)
+    window.addEventListener('squack:message:confirmed', handleConfirmed)
+
     return () => {
       cancelled = true
+      window.removeEventListener('squack:message', handleMessage)
+      window.removeEventListener('squack:message:confirmed', handleConfirmed)
     }
   }, [participant, token])
 
@@ -1162,7 +1445,18 @@ function SettingsPage({ onLogout }: { onLogout: () => void }) {
   )
 }
 
-function Sidebar({ viewer, onLogout }: { viewer: User; onLogout: () => void }) {
+function Sidebar({
+  viewer,
+  onLogout,
+  notifications,
+}: {
+  viewer: User
+  onLogout: () => void
+  notifications: Notification[]
+}) {
+  const messageUnreadCount = notifications.filter((n) => n.type === 'MESSAGE' && !n.isRead).length
+  const otherUnreadCount = notifications.filter((n) => n.type !== 'MESSAGE' && !n.isRead).length
+
   return (
     <aside className="sidebar" aria-label="Primary navigation">
       <Link className="brand" to="/" aria-label="Squack home">
@@ -1181,7 +1475,15 @@ function Sidebar({ viewer, onLogout }: { viewer: User; onLogout: () => void }) {
             key={item.path}
             to={item.path}
           >
-            <Icon name={item.icon} />
+            <div className="nav-icon-container">
+              <Icon name={item.icon} />
+              {item.path === '/alerts' && otherUnreadCount > 0 && (
+                <span className="notification-badge">{otherUnreadCount}</span>
+              )}
+              {item.path === '/messages' && messageUnreadCount > 0 && (
+                <span className="notification-badge">{messageUnreadCount}</span>
+              )}
+            </div>
             <span>{item.label}</span>
           </NavLink>
         ))}
@@ -1210,9 +1512,15 @@ function Sidebar({ viewer, onLogout }: { viewer: User; onLogout: () => void }) {
 function RightRail({
   users,
   posts,
+  followingIds,
+  onFollow,
+  onUnfollow,
 }: {
   users: User[]
   posts: Tweet[]
+  followingIds: Set<string>
+  onFollow: (id: string) => void
+  onUnfollow: (id: string) => void
 }) {
   const reactionCount = posts.reduce((total, post) => total + post.reactionCount, 0)
 
@@ -1253,7 +1561,19 @@ function RightRail({
                 <strong>{user.username}</strong>
                 <small>@{user.username}</small>
               </span>
-              <Link to={`/messages/${user.id}`}>Message</Link>
+              {followingIds.has(user.id) ? (
+                <button
+                  className="text-link"
+                  onClick={() => onUnfollow(user.id)}
+                  style={{ color: 'var(--moss)' }}
+                >
+                  Unfollow
+                </button>
+              ) : (
+                <button className="text-link" onClick={() => onFollow(user.id)}>
+                  Follow
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -1281,31 +1601,58 @@ function MobileNav() {
 }
 
 function SquackApp() {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  const navigate = useNavigate()
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || 'dummy-token')
   const [viewer, setViewer] = useState<User | null>(null)
   const [posts, setPosts] = useState<Tweet[]>([])
+  const [feedPosts, setFeedPosts] = useState<Tweet[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [toasts, setToasts] = useState<Toast[]>([])
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(Boolean(token))
+  const [isLoading, setIsLoading] = useState(true)
 
-  const appReady = Boolean(token && viewer)
+  const removeToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((t) => t.id !== id))
+  }, [])
 
-  async function loadAppData(activeToken: string) {
-    const [tweetData, userData] = await Promise.all([
+  const addToast = useCallback(
+    (title: string, message: string, type: NotificationType, onClick?: () => void) => {
+      const id = Math.random().toString(36).substring(7)
+      setToasts((current) => [...current, { id, title, message, type, onClick }])
+      setTimeout(() => removeToast(id), 6000)
+    },
+    [removeToast],
+  )
+
+  const appReady = Boolean(viewer)
+
+  async function loadAppData(activeToken: string, userId: string) {
+    const [tweetData, feedData, userData, followingData, notificationData] = await Promise.all([
       graphqlRequest<{ tweets: { nodes: Tweet[] } }>(TWEETS_QUERY, {}, activeToken),
+      graphqlRequest<{ feed: { nodes: Tweet[] } }>(FEED_QUERY, {}, activeToken),
       graphqlRequest<{ users: User[] }>(USERS_QUERY, {}, activeToken),
+      graphqlRequest<{ following: { id: string }[] }>(FOLLOWING_QUERY, { userId }, activeToken),
+      graphqlRequest<{ notifications: Notification[] }>(NOTIFICATIONS_QUERY, {}, activeToken),
     ])
 
     setPosts(tweetData.tweets.nodes)
+    setFeedPosts(feedData.feed.nodes)
     setUsers(userData.users)
+    setFollowingIds(new Set(followingData.following.map((u: any) => u.id)))
+    setNotifications(notificationData.notifications)
   }
 
   useEffect(() => {
     if (!token) {
       setViewer(null)
       setPosts([])
+      setFeedPosts([])
       setUsers([])
+      setFollowingIds(new Set())
+      setNotifications([])
       setIsLoading(false)
       return
     }
@@ -1318,20 +1665,18 @@ function SquackApp() {
       setError('')
 
       try {
-        const meData = await graphqlRequest<{ me: User }>(ME_QUERY, {}, activeToken)
+        const me = await authRequest<User>('/auth/me', { token: activeToken })
 
         if (cancelled) {
           return
         }
 
-        setViewer(meData.me)
-        await loadAppData(activeToken)
+        setViewer(me)
+        await loadAppData(activeToken, me.id)
       } catch (restoreError) {
         if (!cancelled) {
-          localStorage.removeItem(TOKEN_KEY)
-          setToken(null)
-          setViewer(null)
-          setError(getErrorMessage(restoreError))
+          console.error('Session restoration failed:', restoreError)
+          setError('Bypass mode active: Ensure at least one user exists in the database.')
         }
       } finally {
         if (!cancelled) {
@@ -1347,6 +1692,49 @@ function SquackApp() {
     }
   }, [token])
 
+  useEffect(() => {
+    if (!token || !viewer) return
+
+    const baseUrl = GRAPHQL_URL.replace('/graphql', '')
+    const options = {
+      auth: { token },
+      transports: ['websocket'],
+    }
+
+    const mSocket: Socket = io(`${baseUrl}/messages`, options)
+    const nSocket: Socket = io(`${baseUrl}/notifications`, options)
+
+    mSocket.on('message.received', (message: Message) => {
+      window.dispatchEvent(new CustomEvent('squack:message', { detail: message }))
+      addToast(
+        `Message from @${message.sender.username}`,
+        message.content,
+        'MESSAGE',
+        () => navigate(`/messages/${message.senderId}`),
+      )
+    })
+
+    mSocket.on('message.sent.confirmed', (message: Message) => {
+      window.dispatchEvent(
+        new CustomEvent('squack:message:confirmed', { detail: message }),
+      )
+    })
+
+    nSocket.on('notification.received', (notification: Notification) => {
+      setNotifications((prev) => [notification, ...prev])
+      if (notification.type !== 'MESSAGE') {
+        addToast('Notification', notification.message, notification.type, () =>
+          navigate('/alerts'),
+        )
+      }
+    })
+
+    return () => {
+      mSocket.disconnect()
+      nSocket.disconnect()
+    }
+  }, [token, viewer, navigate, addToast])
+
   function handleAuthenticated(payload: AuthPayload) {
     localStorage.setItem(TOKEN_KEY, payload.accessToken)
     setToken(payload.accessToken)
@@ -1355,10 +1743,13 @@ function SquackApp() {
 
   function logout() {
     localStorage.removeItem(TOKEN_KEY)
-    setToken(null)
+    setToken('')
     setViewer(null)
     setPosts([])
+    setFeedPosts([])
     setUsers([])
+    setFollowingIds(new Set())
+    setNotifications([])
   }
 
   async function publishPost(event: FormEvent<HTMLFormElement>) {
@@ -1376,6 +1767,7 @@ function SquackApp() {
         token,
       )
       setPosts((currentPosts) => [data.createTweet, ...currentPosts])
+      setFeedPosts((currentFeed) => [data.createTweet, ...currentFeed])
       setDraft('')
       setError('')
     } catch (publishError) {
@@ -1394,14 +1786,80 @@ function SquackApp() {
         { input: { tweetId, kind } },
         token,
       )
-      setPosts((currentPosts) =>
-        currentPosts.map((post) =>
-          post.id === tweetId ? data.reactToTweet : post,
-        ),
-      )
+      const update = (currentPosts: Tweet[]) =>
+        currentPosts.map((post) => (post.id === tweetId ? data.reactToTweet : post))
+
+      setPosts(update)
+      setFeedPosts(update)
       setError('')
     } catch (reactionError) {
       setError(getErrorMessage(reactionError))
+    }
+  }
+
+  async function followUser(userId: string) {
+    if (!token) return
+    try {
+      await graphqlRequest(FOLLOW_MUTATION, { userId }, token)
+      setFollowingIds((current) => {
+        const next = new Set(current)
+        next.add(userId)
+        return next
+      })
+      // Refresh feed
+      const feedData = await graphqlRequest<{ feed: { nodes: Tweet[] } }>(
+        FEED_QUERY,
+        {},
+        token,
+      )
+      setFeedPosts(feedData.feed.nodes)
+    } catch (e) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  async function unfollowUser(userId: string) {
+    if (!token) return
+    try {
+      await graphqlRequest(UNFOLLOW_MUTATION, { userId }, token)
+      setFollowingIds((current) => {
+        const next = new Set(current)
+        next.delete(userId)
+        return next
+      })
+      // Refresh feed
+      const feedData = await graphqlRequest<{ feed: { nodes: Tweet[] } }>(
+        FEED_QUERY,
+        {},
+        token,
+      )
+      setFeedPosts(feedData.feed.nodes)
+    } catch (e) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  async function markNotificationsAsRead() {
+    if (!token) return
+    try {
+      await graphqlRequest(MARK_NOTIFICATIONS_AS_READ_MUTATION, {}, token)
+      setNotifications((current) =>
+        current.map((n) => ({ ...n, isRead: true })),
+      )
+    } catch (e) {
+      setError(getErrorMessage(e))
+    }
+  }
+
+  async function markNotificationAsRead(id: string) {
+    if (!token) return
+    try {
+      await graphqlRequest(MARK_NOTIFICATION_AS_READ_MUTATION, { id }, token)
+      setNotifications((current) =>
+        current.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
+      )
+    } catch (e) {
+      setError(getErrorMessage(e))
     }
   }
 
@@ -1427,8 +1885,9 @@ function SquackApp() {
 
   return (
     <div className="app-shell">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
       <TitleManager users={users} />
-      <Sidebar viewer={viewer} onLogout={logout} />
+      <Sidebar viewer={viewer} onLogout={logout} notifications={notifications} />
 
       <main className="feed-column">
         {error && <p className="error-banner inline-error">{error}</p>}
@@ -1437,7 +1896,7 @@ function SquackApp() {
             path="/"
             element={
               <HomePage
-                posts={posts}
+                posts={feedPosts}
                 draft={draft}
                 onDraftChange={setDraft}
                 onPublish={publishPost}
@@ -1445,13 +1904,49 @@ function SquackApp() {
               />
             }
           />
-          <Route path="/explore" element={<ExplorePage users={users} posts={posts} />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/messages" element={<MessagesPage users={users} />} />
           <Route
-            path="/messages/:userId"
-            element={<MessageThreadPage users={users} viewer={viewer} token={token} />}
+            path="/explore"
+            element={
+              <ExplorePage
+                users={users.filter((u) => u.id !== viewer.id)}
+                posts={posts}
+                followingIds={followingIds}
+                onFollow={followUser}
+                onUnfollow={unfollowUser}
+              />
+            }
           />
+          <Route
+            path="/alerts"
+            element={
+              <AlertsPage
+                notifications={notifications}
+                onMarkAsRead={markNotificationsAsRead}
+              />
+            }
+          />
+          <Route
+            path="/messages"
+            element={
+              <MessagesPage
+                users={users.filter((u) => u.id !== viewer.id)}
+                notifications={notifications}
+              />
+            }
+          />
+          <Route
+           path="/messages/:userId"
+           element={
+             <MessageThreadPage
+               users={users.filter((u) => u.id !== viewer.id)}
+               viewer={viewer}
+               token={token}
+               notifications={notifications}
+               onMarkAsRead={markNotificationAsRead}
+             />
+           }
+          />
+
           <Route path="/bookmarks" element={<BookmarksPage />} />
           <Route
             path="/profile"
@@ -1462,7 +1957,13 @@ function SquackApp() {
         </Routes>
       </main>
 
-      <RightRail users={users} posts={posts} />
+      <RightRail
+        users={users.filter((u) => u.id !== viewer.id)}
+        posts={posts}
+        followingIds={followingIds}
+        onFollow={followUser}
+        onUnfollow={unfollowUser}
+      />
       <MobileNav />
     </div>
   )

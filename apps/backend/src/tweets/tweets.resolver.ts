@@ -1,12 +1,5 @@
 import { UseGuards } from '@nestjs/common';
-import {
-  Args,
-  Context,
-  ID,
-  Int,
-  Mutation,
-  Query,
-  Resolver,
+import {Args,Context,ID,Int,Mutation,Query,Resolver,
 } from '@nestjs/graphql';
 import { GqlAuthGuard } from '../auth/guards/gql-auth.guard';
 import { UserModel } from '../users/models/user.model';
@@ -35,6 +28,17 @@ export class TweetsResolver {
     limit?: number,
   ): Promise<TweetConnection> {
     return this.tweetsService.findAll(cursor, limit);
+  }
+
+  @Query(() => TweetConnection)
+  @UseGuards(GqlAuthGuard)
+  feed(
+    @Context() context: { req: { user: UserModel } },
+    @Args('cursor', { type: () => ID, nullable: true }) cursor?: string,
+    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 })
+    limit?: number,
+  ): Promise<TweetConnection> {
+    return this.tweetsService.getFeed(context.req.user.id, cursor, limit);
   }
 
   @Query(() => TweetConnection)

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { AuthResolver } from './auth.resolver';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { jwtSecret } from './auth.constants';
@@ -15,7 +15,8 @@ import { jwtSecret } from './auth.constants';
       secret: jwtSecret,
     }),
   ],
-  providers: [AuthService, AuthResolver, JwtStrategy],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

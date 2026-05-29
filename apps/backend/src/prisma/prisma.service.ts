@@ -8,7 +8,7 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor() {
-    const url = process.env.DATABASE_URL ?? 'file:./prisma/dev.db';
+    const url = process.env.DATABASE_URL?.replace('file:', 'file:./') ?? 'file:./dev.db';
 
     super({
       adapter: new PrismaBetterSqlite3({ url }),

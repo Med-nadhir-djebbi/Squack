@@ -8,44 +8,46 @@ import {
 import { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service';
 import { UserModel } from '../users/models/user.model';
-import { MessagesEvents } from './messages.events';
-import { MessageType } from './messages.types';
+import { NotificationsEvents } from './notifications.events';
+import { NotificationModel } from './notifications.types';
 
-interface MessagesSocketData {
+interface NotificationsSocketData {
   user?: UserModel;
 }
 
 @WebSocketGateway({
-  namespace: '/messages',
-  
+  namespace: '/notifications',
+  cors: {
+    origin: true,
+    credentials: true,
+  },
 })
-export class MessagesGateway
+export class NotificationsGateway
   implements OnGatewayConnection, OnModuleInit, OnModuleDestroy
 {
   @WebSocketServer()
   server!: Server;
 
-  private readonly deliverMessage = (message: MessageType): void => {
+  private readonly deliverNotification = (
+    notification: NotificationModel,
+  ): void => {
     this.server
-      .to(`user:${message.receiverId}`)
-      .emit('message.received', message);
-    this.server
-      .to(`user:${message.senderId}`)
-      .emit('message.sent.confirmed', message);
+      .to(`user:${notification.userId}`)
+      .emit('notification.received', notification);
   };
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly authService: AuthService,
-    private readonly events: MessagesEvents,
+    private readonly events: NotificationsEvents,
   ) {}
 
   onModuleInit(): void {
-    this.events.onSent(this.deliverMessage);
+    this.events.onCreated(this.deliverNotification);
   }
 
   onModuleDestroy(): void {
-    this.events.offSent(this.deliverMessage);
+    this.events.offCreated(this.deliverNotification);
   }
 
   async handleConnection(client: Socket): Promise<void> {
@@ -61,7 +63,7 @@ export class MessagesGateway
       const token = value.startsWith('Bearer ') ? value.slice(7) : value;
       const payload = await this.jwtService.verifyAsync<{ sub: string }>(token);
       const user = await this.authService.validateUser(payload.sub);
-      const socketData = client.data as MessagesSocketData;
+      const socketData = client.data as NotificationsSocketData;
 
       socketData.user = user;
       await client.join(`user:${user.id}`);

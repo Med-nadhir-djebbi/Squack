@@ -46,7 +46,7 @@ lerna-debug.log*
 .temp
 .tmp
 
-# Runtime data
+# Runtime data 
 pids
 *.pid
 *.seed
@@ -56,3 +56,5 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /generated/prisma
+# database files
+*.db

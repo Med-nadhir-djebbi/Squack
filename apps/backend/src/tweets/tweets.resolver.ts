@@ -9,6 +9,7 @@ import {
   ReactToTweetInput,
   TweetConnection,
   TweetType,
+  UpdateTweetInput,
 } from './tweets.types';
 
 @Resolver(() => TweetType)
@@ -58,6 +59,19 @@ export class TweetsResolver {
     @Args('input') input: CreateTweetInput,
   ): Promise<TweetType> {
     return this.tweetsService.create(context.req.user.id, input.content);
+  }
+
+  @Mutation(() => TweetType)
+  @UseGuards(GqlAuthGuard)
+  updateTweet(
+    @Context() context: { req: { user: UserModel } },
+    @Args('input') input: UpdateTweetInput,
+  ): Promise<TweetType> {
+    return this.tweetsService.update(
+      context.req.user.id,
+      input.id,
+      input.content,
+    );
   }
 
   @Mutation(() => Boolean)

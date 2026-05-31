@@ -40,6 +40,8 @@ type IconName =
   | 'heart'
   | 'chart'
   | 'more'
+  | 'edit'
+  | 'trash'
 
 type Tone = 'moss' | 'brick' | 'ink' | 'gold'
 type AuthMode = 'login' | 'register'
@@ -279,6 +281,20 @@ const CREATE_TWEET_MUTATION = `
     createTweet(input: $input) {
       ${TWEET_FIELDS}
     }
+  }
+`
+
+const UPDATE_TWEET_MUTATION = `
+  mutation UpdateTweet($input: UpdateTweetInput!) {
+    updateTweet(input: $input) {
+      ${TWEET_FIELDS}
+    }
+  }
+`
+
+const DELETE_TWEET_MUTATION = `
+  mutation DeleteTweet($id: ID!) {
+    deleteTweet(id: $id)
   }
 `
 
@@ -609,6 +625,19 @@ function Icon({ name }: { name: IconName }) {
           <circle cx="18" cy="12" r="1" />
         </>
       )}
+      {name === 'edit' && (
+        <>
+          <path d="m5 19 4.2-1 9.4-9.4-3.2-3.2L6 14.8 5 19Z" />
+          <path d="m14.8 5.4 3.2 3.2" />
+        </>
+      )}
+      {name === 'trash' && (
+        <>
+          <path d="M5 7h14" />
+          <path d="M10 11v6M14 11v6" />
+          <path d="m8 7 1-3h6l1 3M7 7l1 13h8l1-13" />
+        </>
+      )}
     </svg>
   )
 }
@@ -839,11 +868,66 @@ function AppLoading() {
 
 function PostCard({
   post,
+  viewerId,
   onReact,
+  onUpdate,
+  onDelete,
 }: {
   post: Tweet
+  viewerId: string
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
 }) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editDraft, setEditDraft] = useState(post.content)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const isOwner = post.authorId === viewerId
+  const trimmedEdit = editDraft.trim()
+  const editRemaining = Math.max(0, 280 - editDraft.length)
+  const wasEdited = post.updatedAt !== post.createdAt
+
+  useEffect(() => {
+    if (!isEditing) {
+      setEditDraft(post.content)
+    }
+  }, [isEditing, post.content])
+
+  async function submitEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!trimmedEdit || trimmedEdit === post.content || isSaving) {
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      await onUpdate(post.id, trimmedEdit)
+      setIsEditing(false)
+    } catch {
+      return
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  async function deletePost() {
+    if (isDeleting || !window.confirm('Delete this squack?')) {
+      return
+    }
+
+    setIsDeleting(true)
+
+    try {
+      await onDelete(post.id)
+    } catch {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <article className="post">
       <Avatar
@@ -856,28 +940,80 @@ function PostCard({
             <strong>{post.author.username}</strong>
             <span>@{post.author.username}</span>
             <span>{formatTime(post.createdAt)}</span>
+            {wasEdited && <span>Edited</span>}
           </div>
-          <button className="ghost-icon" type="button" aria-label="Post menu">
-            <Icon name="more" />
-          </button>
+          {isOwner && !isEditing && (
+            <div className="post-owner-actions">
+              <button
+                className="ghost-icon"
+                onClick={() => setIsEditing(true)}
+                type="button"
+                aria-label="Edit post"
+              >
+                <Icon name="edit" />
+              </button>
+              <button
+                className="ghost-icon post-delete-button"
+                disabled={isDeleting}
+                onClick={() => void deletePost()}
+                type="button"
+                aria-label="Delete post"
+              >
+                <Icon name="trash" />
+              </button>
+            </div>
+          )}
         </div>
 
-        <p>{post.content}</p>
+        {isEditing ? (
+          <form className="post-edit-form" onSubmit={submitEdit}>
+            <textarea
+              aria-label="Edit squack"
+              autoFocus
+              maxLength={280}
+              onChange={(event) => setEditDraft(event.target.value)}
+              value={editDraft}
+            />
+            <div className="post-edit-footer">
+              <span>{editRemaining}</span>
+              <div className="post-edit-actions">
+                <button
+                  className="text-link"
+                  onClick={() => setIsEditing(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="send-button post-save-button"
+                  disabled={!trimmedEdit || trimmedEdit === post.content || isSaving}
+                  type="submit"
+                >
+                  {isSaving ? 'Saving' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </form>
+        ) : (
+          <p>{post.content}</p>
+        )}
 
-        <div className="post-actions">
-          <button
-            type="button"
-            aria-label="Like post"
-            onClick={() => onReact(post.id, 'LIKE')}
-          >
-            <Icon name="heart" />
-            <span>{post.reactionCount}</span>
-          </button>
-          <button type="button" aria-label="Views">
-            <Icon name="chart" />
-            <span>{post.reactionCounts.length}</span>
-          </button>
-        </div>
+        {!isEditing && (
+          <div className="post-actions">
+            <button
+              type="button"
+              aria-label="Like post"
+              onClick={() => onReact(post.id, 'LIKE')}
+            >
+              <Icon name="heart" />
+              <span>{post.reactionCount}</span>
+            </button>
+            <button type="button" aria-label="Views">
+              <Icon name="chart" />
+              <span>{post.reactionCounts.length}</span>
+            </button>
+          </div>
+        )}
       </div>
     </article>
   )
@@ -924,11 +1060,17 @@ function Composer({
 
 function FeedList({
   posts,
+  viewerId,
   onReact,
+  onUpdate,
+  onDelete,
   label = 'Timeline',
 }: {
   posts: Tweet[]
+  viewerId: string
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
   label?: string
 }) {
   if (!posts.length) {
@@ -944,7 +1086,14 @@ function FeedList({
   return (
     <section className="feed-list" aria-label={label}>
       {posts.map((post) => (
-        <PostCard post={post} key={post.id} onReact={onReact} />
+        <PostCard
+          post={post}
+          key={post.id}
+          viewerId={viewerId}
+          onReact={onReact}
+          onUpdate={onUpdate}
+          onDelete={onDelete}
+        />
       ))}
     </section>
   )
@@ -952,22 +1101,35 @@ function FeedList({
 
 function HomePage({
   posts,
+  viewerId,
   draft,
   onDraftChange,
   onPublish,
   onReact,
+  onUpdate,
+  onDelete,
 }: {
   posts: Tweet[]
+  viewerId: string
   draft: string
   onDraftChange: (value: string) => void
   onPublish: (event: FormEvent<HTMLFormElement>) => void
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
 }) {
   return (
     <>
       <PageHeader meta={pageByPath['/']} />
       <Composer draft={draft} onDraftChange={onDraftChange} onPublish={onPublish} />
-      <FeedList posts={posts} onReact={onReact} label="Following timeline" />
+      <FeedList
+        posts={posts}
+        viewerId={viewerId}
+        onReact={onReact}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        label="Following timeline"
+      />
     </>
   )
 }
@@ -975,15 +1137,21 @@ function HomePage({
 function ExplorePage({
   users,
   posts,
+  viewerId,
   followingIds,
   onFollow,
   onUnfollow,
+  onUpdate,
+  onDelete,
 }: {
   users: User[]
   posts: Tweet[]
+  viewerId: string
   followingIds: Set<string>
   onFollow: (id: string) => void
   onUnfollow: (id: string) => void
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
 }) {
   return (
     <>
@@ -1025,7 +1193,14 @@ function ExplorePage({
           />
         )}
       </section>
-      <FeedList posts={posts} onReact={() => undefined} label="Explore timeline" />
+      <FeedList
+        posts={posts}
+        viewerId={viewerId}
+        onReact={() => undefined}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        label="Explore timeline"
+      />
     </>
   )
 }
@@ -1394,10 +1569,14 @@ function ProfilePage({
   viewer,
   posts,
   onReact,
+  onUpdate,
+  onDelete,
 }: {
   viewer: User
   posts: Tweet[]
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
 }) {
   const ownPosts = posts.filter((post) => post.authorId === viewer.id)
 
@@ -1421,7 +1600,14 @@ function ProfilePage({
           {viewer.bio || 'This profile is connected to the backend account.'}
         </p>
       </section>
-      <FeedList posts={ownPosts} onReact={onReact} label="Profile posts" />
+      <FeedList
+        posts={ownPosts}
+        viewerId={viewer.id}
+        onReact={onReact}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        label="Profile posts"
+      />
     </>
   )
 }
@@ -1797,6 +1983,59 @@ function SquackApp() {
     }
   }
 
+  async function updatePost(tweetId: string, content: string) {
+    if (!token) {
+      return
+    }
+
+    try {
+      const data = await graphqlRequest<{ updateTweet: Tweet }>(
+        UPDATE_TWEET_MUTATION,
+        { input: { id: tweetId, content } },
+        token,
+      )
+      const update = (currentPosts: Tweet[]) =>
+        currentPosts.map((post) =>
+          post.id === tweetId ? data.updateTweet : post,
+        )
+
+      setPosts(update)
+      setFeedPosts(update)
+      setError('')
+    } catch (updateError) {
+      setError(getErrorMessage(updateError))
+      throw updateError
+    }
+  }
+
+  async function deletePost(tweetId: string) {
+    if (!token) {
+      return
+    }
+
+    try {
+      const data = await graphqlRequest<{ deleteTweet: boolean }>(
+        DELETE_TWEET_MUTATION,
+        { id: tweetId },
+        token,
+      )
+
+      if (!data.deleteTweet) {
+        throw new Error('Tweet was not deleted')
+      }
+
+      const remove = (currentPosts: Tweet[]) =>
+        currentPosts.filter((post) => post.id !== tweetId)
+
+      setPosts(remove)
+      setFeedPosts(remove)
+      setError('')
+    } catch (deleteError) {
+      setError(getErrorMessage(deleteError))
+      throw deleteError
+    }
+  }
+
   async function followUser(userId: string) {
     if (!token) return
     try {
@@ -1897,10 +2136,13 @@ function SquackApp() {
             element={
               <HomePage
                 posts={feedPosts}
+                viewerId={viewer.id}
                 draft={draft}
                 onDraftChange={setDraft}
                 onPublish={publishPost}
                 onReact={reactToPost}
+                onUpdate={updatePost}
+                onDelete={deletePost}
               />
             }
           />
@@ -1910,9 +2152,12 @@ function SquackApp() {
               <ExplorePage
                 users={users.filter((u) => u.id !== viewer.id)}
                 posts={posts}
+                viewerId={viewer.id}
                 followingIds={followingIds}
                 onFollow={followUser}
                 onUnfollow={unfollowUser}
+                onUpdate={updatePost}
+                onDelete={deletePost}
               />
             }
           />
@@ -1950,7 +2195,15 @@ function SquackApp() {
           <Route path="/bookmarks" element={<BookmarksPage />} />
           <Route
             path="/profile"
-            element={<ProfilePage viewer={viewer} posts={posts} onReact={reactToPost} />}
+            element={
+              <ProfilePage
+                viewer={viewer}
+                posts={posts}
+                onReact={reactToPost}
+                onUpdate={updatePost}
+                onDelete={deletePost}
+              />
+            }
           />
           <Route path="/settings" element={<SettingsPage onLogout={logout} />} />
           <Route path="*" element={<Navigate to="/" replace />} />

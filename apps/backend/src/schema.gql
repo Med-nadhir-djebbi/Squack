@@ -114,6 +114,7 @@ type Query {
 type Mutation {
   updateProfile(bio: String, avatarUrl: String): UserModel!
   createTweet(input: CreateTweetInput!): Tweet!
+  updateTweet(input: UpdateTweetInput!): Tweet!
   deleteTweet(id: ID!): Boolean!
   reactToTweet(input: ReactToTweetInput!): Tweet!
   removeTweetReaction(tweetId: ID!): Tweet!
@@ -125,6 +126,11 @@ type Mutation {
 }
 
 input CreateTweetInput {
+  content: String!
+}
+
+input UpdateTweetInput {
+  id: ID!
   content: String!
 }
 

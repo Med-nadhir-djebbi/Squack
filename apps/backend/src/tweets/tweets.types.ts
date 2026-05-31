@@ -67,6 +67,15 @@ export class CreateTweetInput {
   content!: string;
 }
 
+@InputType()
+export class UpdateTweetInput {
+  @Field(() => ID)
+  id!: string;
+
+  @Field()
+  content!: string;
+}
+
 @ObjectType('TweetReactionCount')
 export class TweetReactionCount {
   @Field(() => TweetReactionKind)

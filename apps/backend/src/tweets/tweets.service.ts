@@ -168,22 +168,29 @@ export class TweetsService {
   }
 
   async delete(authorId: string, tweetId: string): Promise<boolean> {
-    const tweet = await this.prisma.tweet.findUnique({
-      where: { id: tweetId },
-      select: { authorId: true },
-    });
-
-    if (!tweet) {
-      throw new NotFoundException('Tweet not found');
-    }
-
-    if (tweet.authorId !== authorId) {
-      throw new ForbiddenException('You can only delete your own tweets');
-    }
+    await this.assertOwner(authorId, tweetId, 'delete');
 
     await this.prisma.tweet.delete({ where: { id: tweetId } });
 
     return true;
+  }
+
+  async update(
+    authorId: string,
+    tweetId: string,
+    content: string,
+  ): Promise<TweetType> {
+    await this.assertOwner(authorId, tweetId, 'edit');
+
+    const storedTweet = await this.prisma.tweet.update({
+      where: { id: tweetId },
+      data: {
+        content: this.validateContent(content),
+      },
+      include: tweetDetails,
+    });
+
+    return this.toTweet(storedTweet);
   }
 
   async react(
@@ -246,6 +253,25 @@ export class TweetsService {
 
     if (!tweet) {
       throw new NotFoundException('Tweet not found');
+    }
+  }
+
+  private async assertOwner(
+    authorId: string,
+    tweetId: string,
+    action: 'delete' | 'edit',
+  ): Promise<void> {
+    const tweet = await this.prisma.tweet.findUnique({
+      where: { id: tweetId },
+      select: { authorId: true },
+    });
+
+    if (!tweet) {
+      throw new NotFoundException('Tweet not found');
+    }
+
+    if (tweet.authorId !== authorId) {
+      throw new ForbiddenException(`You can only ${action} your own tweets`);
     }
   }
 

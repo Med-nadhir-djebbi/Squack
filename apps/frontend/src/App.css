@@ -817,6 +817,23 @@
   min-width: 0;
 }
 
+.post-owner-actions {
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.post-delete-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--clay) 45%, var(--line));
+  background: var(--soft-clay);
+  color: var(--clay);
+}
+
+.post-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .post-topline span {
   color: var(--muted);
   font-size: 14px;
@@ -826,6 +843,50 @@
   margin: 7px 0 0;
   color: var(--ink);
   line-height: 1.55;
+}
+
+.post-edit-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.post-edit-form textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  outline: 0;
+}
+
+.post-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.post-edit-footer > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.post-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-save-button {
+  min-width: 80px;
+  min-height: 36px;
+  padding: 0 13px;
 }
 
 .tag-row {
@@ -1271,6 +1332,15 @@
   .post-actions button {
     min-width: 0;
     padding: 0 3px;
+  }
+
+  .post-edit-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .post-edit-actions {
+    justify-content: flex-end;
   }
 
   .avatar {

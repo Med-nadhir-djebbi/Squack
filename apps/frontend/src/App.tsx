@@ -855,11 +855,10 @@ function PostCard({
   const editRemaining = Math.max(0, 280 - editDraft.length)
   const wasEdited = post.updatedAt !== post.createdAt
 
-  useEffect(() => {
-    if (!isEditing) {
-      setEditDraft(post.content)
-    }
-  }, [isEditing, post.content])
+  function beginEditing() {
+    setEditDraft(post.content)
+    setIsEditing(true)
+  }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -912,7 +911,7 @@ function PostCard({
             <div className="post-owner-actions">
               <button
                 className="ghost-icon"
-                onClick={() => setIsEditing(true)}
+                onClick={beginEditing}
                 type="button"
                 aria-label="Edit post"
               >

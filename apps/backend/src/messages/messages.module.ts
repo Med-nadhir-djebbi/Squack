@@ -8,7 +8,12 @@ import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [NotificationsModule, AuthModule],
-  providers: [MessagesEvents, MessagesGateway, MessagesResolver, MessagesService],
+  providers: [
+    MessagesEvents,
+    MessagesGateway,
+    MessagesResolver,
+    MessagesService,
+  ],
   exports: [MessagesEvents, MessagesService],
 })
 export class MessagesModule {}

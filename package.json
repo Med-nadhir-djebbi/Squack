@@ -4,11 +4,21 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+<<<<<<< HEAD
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "npm run start -w backend",
     "start:dev": "npm run start:dev -w backend",
     "prisma:migrate:reset": "npm run prisma:migrate:reset -w backend",
     "prisma:seed": "npm run prisma:seed -w backend"
+=======
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace=apps/backend",
+    "prisma:generate": "npm run prisma:generate --workspace=apps/backend",
+    "check": "npm run prisma:generate && npm run lint && npm run build && npm run test && npm run test:e2e",
+    "postinstall": "patch-package"
+>>>>>>> 5b04ef5 (pushing latest local work)
   },
   "keywords": [],
   "author": "",
@@ -18,7 +28,16 @@
     "apps/*",
     "packages/*"
   ],
-  "dependencies": {
-    "@nestjs/jwt": "^11.0.2"
+  "overrides": {
+    "@prisma/dev": {
+      "@hono/node-server": "1.19.13"
+    }
+  },
+  "devDependencies": {
+    "@emnapi/core": "^1.10.0",
+    "@emnapi/runtime": "^1.10.0",
+    "@hono/node-server": "^1.19.13",
+    "@napi-rs/wasm-runtime": "^1.1.4",
+    "patch-package": "^8.0.1"
   }
 }

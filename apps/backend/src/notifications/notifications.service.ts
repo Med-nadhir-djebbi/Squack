@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { NotificationType } from '@prisma/client';
+import { Notification, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { NotificationModel } from './notifications.types';
 import { NotificationsEvents } from './notifications.events';
+import { NotificationModel } from './notifications.types';
 
 @Injectable()
 export class NotificationsService {
@@ -15,6 +15,7 @@ export class NotificationsService {
     return this.prisma.notification.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
+      take: 100,
     });
   }
 
@@ -23,6 +24,7 @@ export class NotificationsService {
       where: { id: notificationId, userId },
       data: { isRead: true },
     });
+
     return result.count > 0;
   }
 
@@ -31,24 +33,23 @@ export class NotificationsService {
       where: { userId, isRead: false },
       data: { isRead: true },
     });
+
     return true;
   }
 
-  async createNotification(
+  createInTransaction(
+    transaction: Prisma.TransactionClient,
     userId: string,
     type: NotificationType,
     message: string,
-  ): Promise<NotificationModel> {
-    const notification = await this.prisma.notification.create({
-      data: {
-        userId,
-        type,
-        message,
-      },
+    actorId?: string,
+  ): Promise<Notification> {
+    return transaction.notification.create({
+      data: { actorId, message, type, userId },
     });
+  }
 
+  publish(notification: NotificationModel): void {
     this.events.emitCreated(notification);
-
-    return notification;
   }
 }

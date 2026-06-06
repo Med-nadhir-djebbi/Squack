@@ -5,6 +5,7 @@ import {
   InputType,
   ObjectType,
 } from '@nestjs/graphql';
+import { IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 @ObjectType('MessageParticipant')
 export class MessageParticipant {
@@ -54,9 +55,13 @@ export class MessageType {
 @InputType()
 export class SendMessageInput {
   @Field(() => ID)
+  @IsUUID()
   receiverId!: string;
 
   @Field()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
   content!: string;
 }
 

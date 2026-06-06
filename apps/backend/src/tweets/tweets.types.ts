@@ -8,6 +8,13 @@ import {
   ObjectType,
   registerEnumType,
 } from '@nestjs/graphql';
+import {
+  IsEnum,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 registerEnumType(TweetReactionKind, {
   name: 'TweetReactionKind',
@@ -64,6 +71,9 @@ export class TweetType {
 @InputType()
 export class CreateTweetInput {
   @Field()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(280)
   content!: string;
 }
 
@@ -88,9 +98,11 @@ export class TweetReactionCount {
 @InputType()
 export class ReactToTweetInput {
   @Field(() => ID)
+  @IsUUID()
   tweetId!: string;
 
   @Field(() => TweetReactionKind)
+  @IsEnum(TweetReactionKind)
   kind!: TweetReactionKind;
 }
 

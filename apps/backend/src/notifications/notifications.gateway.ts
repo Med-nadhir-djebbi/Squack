@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { AuthService } from '../auth/auth.service';
+import { getAllowedOrigins } from '../config/cors.config';
 import { UserModel } from '../users/models/user.model';
 import { NotificationsEvents } from './notifications.events';
 import { NotificationModel } from './notifications.types';
@@ -18,7 +19,7 @@ interface NotificationsSocketData {
 @WebSocketGateway({
   namespace: '/notifications',
   cors: {
-    origin: true,
+    origin: getAllowedOrigins(),
     credentials: true,
   },
 })

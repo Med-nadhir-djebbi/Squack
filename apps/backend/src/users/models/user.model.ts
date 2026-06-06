@@ -8,9 +8,6 @@ export class UserModel {
   @Field()
   username: string;
 
-  @Field()
-  email: string;
-
   @Field(() => String, { nullable: true })
   bio?: string | null;
 

@@ -1,9 +1,14 @@
-import {BadRequestException,ForbiddenException,Injectable,NotFoundException,} from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { NotificationType, TweetReactionKind } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TweetsEvents } from './tweets.events';
 import { TweetConnection, TweetType } from './tweets.types';
-import { NotificationsService } from '../notifications/notifications.service';
 
 const tweetDetails = {
   author: {
@@ -43,8 +48,8 @@ export class TweetsService {
   ) {}
 
   async findById(id: string): Promise<TweetType | null> {
-    const tweet = await this.prisma.tweet.findUnique({
-      where: { id },
+    const tweet = await this.prisma.tweet.findFirst({
+      where: { id, author: { isDeleted: false } },
       include: tweetDetails,
     });
 
@@ -54,22 +59,14 @@ export class TweetsService {
   async findAll(cursor?: string, limit = 20): Promise<TweetConnection> {
     const pageSize = this.validatePageSize(limit);
     const tweets = await this.prisma.tweet.findMany({
+      where: { author: { isDeleted: false } },
       include: tweetDetails,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: pageSize + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
-    const hasNextPage = tweets.length > pageSize;
-    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
-
-    return {
-      nodes,
-      pageInfo: {
-        hasNextPage,
-        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
-      },
-    };
+    return this.toConnection(tweets, pageSize);
   }
 
   async findUserTweets(
@@ -79,23 +76,14 @@ export class TweetsService {
   ): Promise<TweetConnection> {
     const pageSize = this.validatePageSize(limit);
     const tweets = await this.prisma.tweet.findMany({
-      where: { authorId: userId },
+      where: { authorId: userId, author: { isDeleted: false } },
       include: tweetDetails,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: pageSize + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
-    const hasNextPage = tweets.length > pageSize;
-    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
-
-    return {
-      nodes,
-      pageInfo: {
-        hasNextPage,
-        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
-      },
-    };
+    return this.toConnection(tweets, pageSize);
   }
 
   async getFeed(
@@ -104,74 +92,66 @@ export class TweetsService {
     limit = 20,
   ): Promise<TweetConnection> {
     const pageSize = this.validatePageSize(limit);
-
-    // Get IDs of users being followed
     const followed = await this.prisma.follow.findMany({
-      where: { followerId: userId },
+      where: { followerId: userId, following: { isDeleted: false } },
       select: { followingId: true },
     });
-
-    const followingIds = followed.map((f) => f.followingId);
-
-    // Include the user's own tweets in their feed
-    const authorIds = [...followingIds, userId];
-
+    const authorIds = [...followed.map((follow) => follow.followingId), userId];
     const tweets = await this.prisma.tweet.findMany({
-      where: {
-        authorId: { in: authorIds },
-      },
+      where: { authorId: { in: authorIds }, author: { isDeleted: false } },
       include: tweetDetails,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: pageSize + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
-    const hasNextPage = tweets.length > pageSize;
-    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
-
-    return {
-      nodes,
-      pageInfo: {
-        hasNextPage,
-        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
-      },
-    };
+    return this.toConnection(tweets, pageSize);
   }
 
   async create(authorId: string, content: string): Promise<TweetType> {
-    const storedTweet = await this.prisma.tweet.create({
-      data: {
-        authorId,
-        content: this.validateContent(content),
-      },
-      include: tweetDetails,
-    });
-    const tweet = this.toTweet(storedTweet);
-
-    this.events.emitCreated(tweet);
-
-    // Notify followers
-    const followers = await this.prisma.follow.findMany({
-      where: { followingId: authorId },
-      select: { followerId: true },
-    });
-
-    for (const f of followers) {
-      await this.notifications.createNotification(
-        f.followerId,
-        NotificationType.TWEET,
-        `@${tweet.author.username} posted a new tweet: ${tweet.content.substring(0, 30)}${tweet.content.length > 30 ? '...' : ''}`,
+    const validatedContent = this.validateContent(content);
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const storedTweet = await transaction.tweet.create({
+        data: { authorId, content: validatedContent },
+        include: tweetDetails,
+      });
+      const tweet = this.toTweet(storedTweet);
+      const followers = await transaction.follow.findMany({
+        where: { followingId: authorId, follower: { isDeleted: false } },
+        select: { followerId: true },
+      });
+      const notificationMessage =
+        '@' +
+        tweet.author.username +
+        ' posted a new tweet: ' +
+        tweet.content.substring(0, 30) +
+        (tweet.content.length > 30 ? '...' : '');
+      const notifications = await Promise.all(
+        followers.map((follow) =>
+          this.notifications.createInTransaction(
+            transaction,
+            follow.followerId,
+            NotificationType.TWEET,
+            notificationMessage,
+            authorId,
+          ),
+        ),
       );
-    }
 
-    return tweet;
+      return { notifications, tweet };
+    });
+
+    this.events.emitCreated(result.tweet);
+    result.notifications.forEach((notification) =>
+      this.notifications.publish(notification),
+    );
+    return result.tweet;
   }
 
   async delete(authorId: string, tweetId: string): Promise<boolean> {
     await this.assertOwner(authorId, tweetId, 'delete');
 
     await this.prisma.tweet.delete({ where: { id: tweetId } });
-
     return true;
   }
 
@@ -199,11 +179,8 @@ export class TweetsService {
     kind: TweetReactionKind,
   ): Promise<TweetType> {
     await this.assertExists(tweetId);
-
     await this.prisma.tweetReaction.upsert({
-      where: {
-        tweetId_userId: { tweetId, userId },
-      },
+      where: { tweetId_userId: { tweetId, userId } },
       create: { tweetId, userId, kind },
       update: { kind },
     });
@@ -213,11 +190,7 @@ export class TweetsService {
 
   async removeReaction(userId: string, tweetId: string): Promise<TweetType> {
     await this.assertExists(tweetId);
-
-    await this.prisma.tweetReaction.deleteMany({
-      where: { tweetId, userId },
-    });
-
+    await this.prisma.tweetReaction.deleteMany({ where: { tweetId, userId } });
     return this.findRequiredTweet(tweetId);
   }
 
@@ -246,8 +219,8 @@ export class TweetsService {
   }
 
   private async assertExists(tweetId: string): Promise<void> {
-    const tweet = await this.prisma.tweet.findUnique({
-      where: { id: tweetId },
+    const tweet = await this.prisma.tweet.findFirst({
+      where: { id: tweetId, author: { isDeleted: false } },
       select: { id: true },
     });
 
@@ -283,6 +256,22 @@ export class TweetsService {
     }
 
     return tweet;
+  }
+
+  private toConnection(
+    tweets: StoredTweet[],
+    pageSize: number,
+  ): TweetConnection {
+    const hasNextPage = tweets.length > pageSize;
+    const nodes = tweets.slice(0, pageSize).map((tweet) => this.toTweet(tweet));
+
+    return {
+      nodes,
+      pageInfo: {
+        hasNextPage,
+        nextCursor: hasNextPage ? nodes[nodes.length - 1]?.id : undefined,
+      },
+    };
   }
 
   private toTweet(tweet: StoredTweet): TweetType {

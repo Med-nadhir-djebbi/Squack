@@ -9,11 +9,13 @@ export class FollowsResolver {
   constructor(private readonly followsService: FollowsService) {}
 
   @Query(() => [UserModel])
+  @UseGuards(GqlAuthGuard)
   followers(@Args('userId', { type: () => ID }) userId: string) {
     return this.followsService.getFollowers(userId);
   }
 
   @Query(() => [UserModel])
+  @UseGuards(GqlAuthGuard)
   following(@Args('userId', { type: () => ID }) userId: string) {
     return this.followsService.getFollowing(userId);
   }

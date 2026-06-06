@@ -22,6 +22,9 @@ export class NotificationModel {
   @Field(() => ID)
   userId: string;
 
+  @Field(() => ID, { nullable: true })
+  actorId?: string | null;
+
   @Field()
   createdAt: Date;
 }

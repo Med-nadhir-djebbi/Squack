@@ -13,6 +13,8 @@ import {
 } from 'react-router-dom'
 import { io } from 'socket.io-client'
 import type { Socket } from 'socket.io-client'
+import { messageBelongsToThread, upsertMessage } from './message-utils'
+import type { Message } from './message-utils'
 import './App.css'
 
 const TOKEN_KEY = 'squack_access_token'
@@ -21,9 +23,6 @@ const GRAPHQL_URL =
 const API_URL = (
   import.meta.env.VITE_API_URL ?? GRAPHQL_URL.replace(/\/graphql\/?$/, '')
 ).replace(/\/$/, '')
-const MESSAGES_SOCKET_URL =
-  import.meta.env.VITE_MESSAGES_SOCKET_URL ?? 'http://localhost:3000/messages'
-
 type IconName =
   | 'home'
   | 'search'
@@ -50,7 +49,6 @@ type ReactionKind = 'LIKE' | 'LOVE' | 'LAUGH' | 'WOW' | 'SAD'
 type User = {
   id: string
   username: string
-  email: string
   bio?: string | null
   avatarUrl?: string | null
   createdAt: string
@@ -79,16 +77,6 @@ type Tweet = {
   reactionCounts: TweetReactionCount[]
 }
 
-type Message = {
-  id: string
-  content: string
-  senderId: string
-  receiverId: string
-  sender: TweetAuthor
-  receiver: TweetAuthor
-  createdAt: string
-}
-
 type NotificationType = 'FOLLOW' | 'MESSAGE' | 'TWEET'
 
 type Notification = {
@@ -97,6 +85,7 @@ type Notification = {
   message: string
   isRead: boolean
   userId: string
+  actorId?: string | null
   createdAt: string
 }
 
@@ -196,7 +185,6 @@ const pageByPath = navigation.reduce<Record<string, PageMeta>>((pages, page) => 
 const USER_FIELDS = `
   id
   username
-  email
   bio
   avatarUrl
   createdAt
@@ -245,6 +233,7 @@ const NOTIFICATION_FIELDS = `
   message
   isRead
   userId
+  actorId
   createdAt
 `
 
@@ -543,29 +532,6 @@ function formatTime(value: string) {
   return `${Math.floor(diffMs / day)}d`
 }
 
-function messageBelongsToThread(
-  message: Message,
-  viewerId: string,
-  participantId: string,
-) {
-  return (
-    (message.senderId === viewerId && message.receiverId === participantId) ||
-    (message.senderId === participantId && message.receiverId === viewerId)
-  )
-}
-
-function upsertMessage(messages: Message[], nextMessage: Message) {
-  const existingIndex = messages.findIndex((message) => message.id === nextMessage.id)
-
-  if (existingIndex === -1) {
-    return [...messages, nextMessage]
-  }
-
-  return messages.map((message, index) =>
-    index === existingIndex ? nextMessage : message,
-  )
-}
-
 function Icon({ name }: { name: IconName }) {
   return (
     <svg
@@ -829,7 +795,7 @@ function AuthPage({ onAuthenticated }: { onAuthenticated: (payload: AuthPayload)
           Password
           <input
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            minLength={4}
+            minLength={mode === 'register' ? 8 : 1}
             onChange={(event) => setPassword(event.target.value)}
             required
             type="password"
@@ -1269,7 +1235,7 @@ function MessagesPage({
               (n) =>
                 n.type === 'MESSAGE' &&
                 !n.isRead &&
-                n.message.includes(`@${user.username}`),
+                n.actorId === user.id,
             )
             return (
               <Link
@@ -1312,12 +1278,14 @@ function MessageThreadPage({
   token,
   notifications,
   onMarkAsRead,
+  liveStatus,
 }: {
   users: User[]
   viewer: User
   token: string
   notifications: Notification[]
   onMarkAsRead: (id: string) => void
+  liveStatus: 'connecting' | 'live' | 'offline'
 }) {
   const { userId } = useParams()
   const participant = users.find((user) => user.id === userId)
@@ -1325,9 +1293,6 @@ function MessageThreadPage({
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [liveStatus, setLiveStatus] = useState<'connecting' | 'live' | 'offline'>(
-    'connecting',
-  )
 
   useEffect(() => {
     if (!participant) return
@@ -1336,7 +1301,7 @@ function MessageThreadPage({
       (n) =>
         n.type === 'MESSAGE' &&
         !n.isRead &&
-        n.message.includes(`@${participant.username}`),
+        n.actorId === participant.id,
     )
 
     for (const n of unreadMessageNotifications) {
@@ -1377,23 +1342,19 @@ function MessageThreadPage({
 
     loadConversation()
 
-    const handleMessage = (e: any) => {
-      const message = e.detail
-      if (message.senderId === participantId || message.receiverId === participantId) {
-        setMessages((prev) => {
-          if (prev.find((m) => m.id === message.id)) return prev
-          return [...prev, message]
-        })
+    const handleMessage = (event: Event) => {
+      const message = (event as CustomEvent<Message>).detail
+
+      if (messageBelongsToThread(message, viewer.id, participantId)) {
+        setMessages((current) => upsertMessage(current, message))
       }
     }
 
-    const handleConfirmed = (e: any) => {
-      const message = e.detail
-      if (message.senderId === participantId || message.receiverId === participantId) {
-        setMessages((prev) => {
-          if (prev.find((m) => m.id === message.id)) return prev
-          return [...prev, message]
-        })
+    const handleConfirmed = (event: Event) => {
+      const message = (event as CustomEvent<Message>).detail
+
+      if (messageBelongsToThread(message, viewer.id, participantId)) {
+        setMessages((current) => upsertMessage(current, message))
       }
     }
 
@@ -1404,42 +1365,6 @@ function MessageThreadPage({
       cancelled = true
       window.removeEventListener('squack:message', handleMessage)
       window.removeEventListener('squack:message:confirmed', handleConfirmed)
-    }
-  }, [participant, token])
-
-  useEffect(() => {
-    if (!participant) {
-      return
-    }
-
-    setLiveStatus('connecting')
-    const participantId = participant.id
-
-    const socket = io(MESSAGES_SOCKET_URL, {
-      auth: { token },
-    })
-
-    function handleLiveMessage(message: Message) {
-      if (!messageBelongsToThread(message, viewer.id, participantId)) {
-        return
-      }
-
-      setMessages((currentMessages) => upsertMessage(currentMessages, message))
-    }
-
-    socket.on('connect', () => setLiveStatus('live'))
-    socket.on('disconnect', () => setLiveStatus('offline'))
-    socket.on('connect_error', () => setLiveStatus('offline'))
-    socket.on('message.received', handleLiveMessage)
-    socket.on('message.sent.confirmed', handleLiveMessage)
-
-    return () => {
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('connect_error')
-      socket.off('message.received', handleLiveMessage)
-      socket.off('message.sent.confirmed', handleLiveMessage)
-      socket.disconnect()
     }
   }, [participant, token, viewer.id])
 
@@ -1740,7 +1665,7 @@ function RightRail({
           <Link to="/explore">See all</Link>
         </div>
         <div className="people-list">
-          {users.slice(0, 4).map((user) => (
+          {users.map((user) => (
             <div className="person" key={user.id}>
               <Avatar label={initials(user.username)} tone={toneFor(user.id)} />
               <span>
@@ -1788,7 +1713,7 @@ function MobileNav() {
 
 function SquackApp() {
   const navigate = useNavigate()
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || 'dummy-token')
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) ?? '')
   const [viewer, setViewer] = useState<User | null>(null)
   const [posts, setPosts] = useState<Tweet[]>([])
   const [feedPosts, setFeedPosts] = useState<Tweet[]>([])
@@ -1798,7 +1723,10 @@ function SquackApp() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [draft, setDraft] = useState('')
   const [error, setError] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)))
+  const [messageSocketStatus, setMessageSocketStatus] = useState<
+    'connecting' | 'live' | 'offline'
+  >(() => localStorage.getItem(TOKEN_KEY) ? 'connecting' : 'offline')
 
   const removeToast = useCallback((id: string) => {
     setToasts((current) => current.filter((t) => t.id !== id))
@@ -1827,19 +1755,12 @@ function SquackApp() {
     setPosts(tweetData.tweets.nodes)
     setFeedPosts(feedData.feed.nodes)
     setUsers(userData.users)
-    setFollowingIds(new Set(followingData.following.map((u: any) => u.id)))
+    setFollowingIds(new Set(followingData.following.map((user) => user.id)))
     setNotifications(notificationData.notifications)
   }
 
   useEffect(() => {
     if (!token) {
-      setViewer(null)
-      setPosts([])
-      setFeedPosts([])
-      setUsers([])
-      setFollowingIds(new Set())
-      setNotifications([])
-      setIsLoading(false)
       return
     }
 
@@ -1862,7 +1783,15 @@ function SquackApp() {
       } catch (restoreError) {
         if (!cancelled) {
           console.error('Session restoration failed:', restoreError)
-          setError('Bypass mode active: Ensure at least one user exists in the database.')
+          localStorage.removeItem(TOKEN_KEY)
+          setToken('')
+          setViewer(null)
+          setPosts([])
+          setFeedPosts([])
+          setUsers([])
+          setFollowingIds(new Set())
+          setNotifications([])
+          setMessageSocketStatus('offline')
         }
       } finally {
         if (!cancelled) {
@@ -1881,7 +1810,7 @@ function SquackApp() {
   useEffect(() => {
     if (!token || !viewer) return
 
-    const baseUrl = GRAPHQL_URL.replace('/graphql', '')
+    const baseUrl = API_URL
     const options = {
       auth: { token },
       transports: ['websocket'],
@@ -1889,6 +1818,10 @@ function SquackApp() {
 
     const mSocket: Socket = io(`${baseUrl}/messages`, options)
     const nSocket: Socket = io(`${baseUrl}/notifications`, options)
+
+    mSocket.on('connect', () => setMessageSocketStatus('live'))
+    mSocket.on('disconnect', () => setMessageSocketStatus('offline'))
+    mSocket.on('connect_error', () => setMessageSocketStatus('offline'))
 
     mSocket.on('message.received', (message: Message) => {
       window.dispatchEvent(new CustomEvent('squack:message', { detail: message }))
@@ -1916,6 +1849,7 @@ function SquackApp() {
     })
 
     return () => {
+      setMessageSocketStatus('offline')
       mSocket.disconnect()
       nSocket.disconnect()
     }
@@ -1925,6 +1859,7 @@ function SquackApp() {
     localStorage.setItem(TOKEN_KEY, payload.accessToken)
     setToken(payload.accessToken)
     setViewer(payload.user)
+    setMessageSocketStatus('connecting')
   }
 
   function logout() {
@@ -1936,6 +1871,7 @@ function SquackApp() {
     setUsers([])
     setFollowingIds(new Set())
     setNotifications([])
+    setMessageSocketStatus('offline')
   }
 
   async function publishPost(event: FormEvent<HTMLFormElement>) {
@@ -2078,29 +2014,38 @@ function SquackApp() {
     }
   }
 
-  async function markNotificationsAsRead() {
+  const markNotificationsAsRead = useCallback(async () => {
     if (!token) return
+
     try {
       await graphqlRequest(MARK_NOTIFICATIONS_AS_READ_MUTATION, {}, token)
       setNotifications((current) =>
-        current.map((n) => ({ ...n, isRead: true })),
+        current.map((notification) => ({ ...notification, isRead: true })),
       )
-    } catch (e) {
-      setError(getErrorMessage(e))
+    } catch (markError) {
+      setError(getErrorMessage(markError))
     }
-  }
+  }, [token])
 
-  async function markNotificationAsRead(id: string) {
-    if (!token) return
-    try {
-      await graphqlRequest(MARK_NOTIFICATION_AS_READ_MUTATION, { id }, token)
-      setNotifications((current) =>
-        current.map((n) => (n.id === id ? { ...n, isRead: true } : n)),
-      )
-    } catch (e) {
-      setError(getErrorMessage(e))
-    }
-  }
+  const markNotificationAsRead = useCallback(
+    async (id: string) => {
+      if (!token) return
+
+      try {
+        await graphqlRequest(MARK_NOTIFICATION_AS_READ_MUTATION, { id }, token)
+        setNotifications((current) =>
+          current.map((notification) =>
+            notification.id === id
+              ? { ...notification, isRead: true }
+              : notification,
+          ),
+        )
+      } catch (markError) {
+        setError(getErrorMessage(markError))
+      }
+    },
+    [token],
+  )
 
   const profileTitle = useMemo(
     () => (viewer ? `${viewer.username} - Squack` : 'Profile - Squack'),
@@ -2188,6 +2133,7 @@ function SquackApp() {
                token={token}
                notifications={notifications}
                onMarkAsRead={markNotificationAsRead}
+               liveStatus={messageSocketStatus}
              />
            }
           />

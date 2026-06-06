@@ -1,5 +1,10 @@
-import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 
@@ -11,30 +16,48 @@ export class AuthService {
   ) {}
 
   async register(data: { username: string; email: string; password: string }) {
-    const existingEmail = await this.usersService.findByEmail(data.email);
+    const email = data.email.trim().toLowerCase();
+    const username = data.username.trim();
+    const existingEmail = await this.usersService.findByEmail(email);
+
     if (existingEmail) {
       throw new BadRequestException('Email already in use');
     }
 
-    const existingUsername = await this.usersService.findByUsername(data.username);
+    const existingUsername = await this.usersService.findByUsername(username);
+
     if (existingUsername) {
       throw new BadRequestException('Username already in use');
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 10);
-    const user = await this.usersService.createUser({
-      username: data.username,
-      email: data.email,
-      password: hashedPassword,
-    });
+    const hashedPassword = await bcrypt.hash(data.password, 12);
 
-    const accessToken = await this.jwtService.signAsync({ sub: user.id });
+    try {
+      const user = await this.usersService.createUser({
+        username,
+        email,
+        password: hashedPassword,
+      });
+      const accessToken = await this.jwtService.signAsync({ sub: user.id });
 
-    return { accessToken, user };
+      return { accessToken, user };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException('Email or username already in use');
+      }
+
+      throw error;
+    }
   }
 
   async login(data: { email: string; password: string }) {
-    const userWithPassword = await this.usersService.findByEmail(data.email);
+    const userWithPassword = await this.usersService.findByEmail(
+      data.email.trim().toLowerCase(),
+    );
+
     if (!userWithPassword) {
       throw new UnauthorizedException('Invalid credentials');
     }

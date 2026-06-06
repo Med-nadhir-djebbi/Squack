@@ -4,10 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MessagesEvents } from './messages.events';
 import { MessageConnection, MessageType } from './messages.types';
-import { NotificationsService } from '../notifications/notifications.service';
 
 const messageWithUsers = {
   sender: {
@@ -42,6 +42,15 @@ export class MessagesService {
   ): Promise<MessageConnection> {
     if (userId === withUserId) {
       throw new BadRequestException('A conversation requires another user');
+    }
+
+    const participant = await this.prisma.user.findFirst({
+      where: { id: withUserId, isDeleted: false },
+      select: { id: true },
+    });
+
+    if (!participant) {
+      throw new NotFoundException('Conversation participant not found');
     }
 
     const pageSize = this.validatePageSize(limit);
@@ -79,33 +88,35 @@ export class MessagesService {
       throw new BadRequestException('You cannot message yourself');
     }
 
-    const receiver = await this.prisma.user.findFirst({
-      where: { id: receiverId, isDeleted: false },
-      select: { id: true },
-    });
+    const validatedContent = this.validateContent(content);
+    const result = await this.prisma.$transaction(async (transaction) => {
+      const receiver = await transaction.user.findFirst({
+        where: { id: receiverId, isDeleted: false },
+        select: { id: true },
+      });
 
-    if (!receiver) {
-      throw new NotFoundException('Message receiver not found');
-    }
+      if (!receiver) {
+        throw new NotFoundException('Message receiver not found');
+      }
 
-    const message = await this.prisma.message.create({
-      data: {
-        senderId,
+      const message = await transaction.message.create({
+        data: { content: validatedContent, receiverId, senderId },
+        include: messageWithUsers,
+      });
+      const notification = await this.notifications.createInTransaction(
+        transaction,
         receiverId,
-        content: this.validateContent(content),
-      },
-      include: messageWithUsers,
+        NotificationType.MESSAGE,
+        '@' + message.sender.username + ' sent you a message',
+        senderId,
+      );
+
+      return { message, notification };
     });
 
-    this.events.emitSent(message);
-
-    await this.notifications.createNotification(
-      receiverId,
-      NotificationType.MESSAGE,
-      `@${message.sender.username} sent you a message`,
-    );
-
-    return message;
+    this.events.emitSent(result.message);
+    this.notifications.publish(result.notification);
+    return result.message;
   }
 
   private validateContent(content: string): string {

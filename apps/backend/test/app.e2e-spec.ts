@@ -23,6 +23,17 @@ describe('AppController (e2e)', () => {
       .expect('Hello World!');
   });
 
+  it('/auth/register rejects invalid input', () => {
+    return request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
+        username: 'x',
+        email: 'not-an-email',
+        password: 'short',
+      })
+      .expect(400);
+  });
+
   afterEach(async () => {
     await app.close();
   });

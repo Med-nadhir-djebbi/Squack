@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { publicUserSelect } from './users.select';
 
 @Injectable()
 export class UsersService {
@@ -8,15 +9,7 @@ export class UsersService {
   async findById(id: string) {
     const user = await this.prisma.user.findFirst({
       where: { id, isDeleted: false },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        bio: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: publicUserSelect,
     });
 
     if (!user) {
@@ -33,15 +26,7 @@ export class UsersService {
         ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
       },
       orderBy: { username: 'asc' },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        bio: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: publicUserSelect,
     });
   }
 
@@ -50,28 +35,23 @@ export class UsersService {
   }
 
   async findByUsername(username: string) {
-    return this.prisma.user.findFirst({ where: { username, isDeleted: false } });
-  }
-
-  async createUser(data: { username: string; email: string; password: string }) {
-    return this.prisma.user.create({
-      data,
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        bio: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    return this.prisma.user.findFirst({
+      where: { username, isDeleted: false },
     });
   }
 
-  async updateProfile(
-    id: string,
-    data: { bio?: string; avatarUrl?: string },
-  ) {
+  async createUser(data: {
+    username: string;
+    email: string;
+    password: string;
+  }) {
+    return this.prisma.user.create({
+      data,
+      select: publicUserSelect,
+    });
+  }
+
+  async updateProfile(id: string, data: { bio?: string; avatarUrl?: string }) {
     const existing = await this.prisma.user.findFirst({
       where: { id, isDeleted: false },
     });
@@ -83,15 +63,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data,
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        bio: true,
-        avatarUrl: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: publicUserSelect,
     });
   }
 }

@@ -5,7 +5,6 @@
 type UserModel {
   id: String!
   username: String!
-  email: String!
   bio: String
   avatarUrl: String
   createdAt: DateTime!
@@ -16,6 +15,48 @@ type UserModel {
 A date-time string at UTC, such as 2019-12-03T09:54:33Z, compliant with the date-time format.
 """
 scalar DateTime
+
+type NotificationModel {
+  id: ID!
+  type: NotificationType!
+  message: String!
+  isRead: Boolean!
+  userId: ID!
+  actorId: ID
+  createdAt: DateTime!
+}
+
+enum NotificationType {
+  FOLLOW
+  MESSAGE
+  TWEET
+}
+
+type MessageParticipant {
+  id: ID!
+  username: String!
+  avatarUrl: String
+}
+
+type MessagePageInfo {
+  nextCursor: String
+  hasNextPage: Boolean!
+}
+
+type Message {
+  id: ID!
+  content: String!
+  senderId: ID!
+  receiverId: ID!
+  sender: MessageParticipant!
+  receiver: MessageParticipant!
+  createdAt: DateTime!
+}
+
+type MessageConnection {
+  nodes: [Message!]!
+  pageInfo: MessagePageInfo!
+}
 
 type TweetAuthor {
   id: ID!
@@ -55,47 +96,6 @@ enum TweetReactionKind {
 type TweetConnection {
   nodes: [Tweet!]!
   pageInfo: TweetPageInfo!
-}
-
-type NotificationModel {
-  id: ID!
-  type: NotificationType!
-  message: String!
-  isRead: Boolean!
-  userId: ID!
-  createdAt: DateTime!
-}
-
-enum NotificationType {
-  FOLLOW
-  MESSAGE
-  TWEET
-}
-
-type MessageParticipant {
-  id: ID!
-  username: String!
-  avatarUrl: String
-}
-
-type MessagePageInfo {
-  nextCursor: String
-  hasNextPage: Boolean!
-}
-
-type Message {
-  id: ID!
-  content: String!
-  senderId: ID!
-  receiverId: ID!
-  sender: MessageParticipant!
-  receiver: MessageParticipant!
-  createdAt: DateTime!
-}
-
-type MessageConnection {
-  nodes: [Message!]!
-  pageInfo: MessagePageInfo!
 }
 
 type Query {

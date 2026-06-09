@@ -13,14 +13,29 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci || npm install
+      - name: Resolve workspace root
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "WORKSPACE_ROOT=." >> "$GITHUB_ENV"
+          elif [ -f Med-nadhir-djebbi/Squack/package-lock.json ]; then
+            echo "WORKSPACE_ROOT=Med-nadhir-djebbi/Squack" >> "$GITHUB_ENV"
+          else
+            echo "Unable to locate package-lock.json in CI workspace" >&2
+            exit 1
+          fi
+      - run: npm ci
+        working-directory: ${{ env.WORKSPACE_ROOT }}
       - run: npm run prisma:generate --workspace=apps/backend
+        working-directory: ${{ env.WORKSPACE_ROOT }}
       - run: npm run prisma:migrate --workspace=apps/backend
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         env:
           DATABASE_URL: file:/tmp/squack-ci.db
       - run: npm run check
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         env:
           DATABASE_URL: file:/tmp/squack-ci.db
           JWT_SECRET: ci-only-secret-that-is-long-enough
           CORS_ORIGINS: http://localhost:5173
       - run: npm audit --audit-level=moderate
+        working-directory: ${{ env.WORKSPACE_ROOT }}

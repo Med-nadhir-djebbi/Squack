@@ -15,10 +15,7 @@ jobs:
           cache: npm
       - name: Resolve workspace root
         run: |
-          lockfile_path="$(find . -maxdepth 1 -type f -name package-lock.json -print -quit)"
-          if [ -z "$lockfile_path" ]; then
-            lockfile_path="$(find . \( -path '*/node_modules' -prune \) -o \( -type f -name package-lock.json -print -quit \))"
-          fi
+          lockfile_path="$(find . -path '*/node_modules' -prune -o -type f -name package-lock.json -print -quit)"
           if [ -n "$lockfile_path" ]; then
             echo "WORKSPACE_ROOT=$(dirname "$lockfile_path")" >> "$GITHUB_ENV"
           else

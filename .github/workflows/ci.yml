@@ -18,9 +18,9 @@ jobs:
           if [ -f package-lock.json ]; then
             echo "WORKSPACE_ROOT=." >> "$GITHUB_ENV"
           else
-            workspace_root="$(find . -maxdepth 4 -type f -name package-lock.json -not -path '*/node_modules/*' -print -quit | xargs -r dirname)"
-            if [ -n "$workspace_root" ]; then
-              echo "WORKSPACE_ROOT=$workspace_root" >> "$GITHUB_ENV"
+            lockfile_path="$(find . -type f -name package-lock.json -not -path '*/node_modules/*' -print -quit)"
+            if [ -n "$lockfile_path" ]; then
+              echo "WORKSPACE_ROOT=$(dirname "$lockfile_path")" >> "$GITHUB_ENV"
             else
               echo "Unable to locate package-lock.json in CI workspace" >&2
               exit 1

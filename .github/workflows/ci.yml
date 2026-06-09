@@ -17,11 +17,14 @@ jobs:
         run: |
           if [ -f package-lock.json ]; then
             echo "WORKSPACE_ROOT=." >> "$GITHUB_ENV"
-          elif [ -f Med-nadhir-djebbi/Squack/package-lock.json ]; then
-            echo "WORKSPACE_ROOT=Med-nadhir-djebbi/Squack" >> "$GITHUB_ENV"
           else
-            echo "Unable to locate package-lock.json in CI workspace" >&2
-            exit 1
+            workspace_root="$(find . -maxdepth 4 -type f -name package-lock.json -not -path '*/node_modules/*' -print -quit | xargs -r dirname)"
+            if [ -n "$workspace_root" ]; then
+              echo "WORKSPACE_ROOT=$workspace_root" >> "$GITHUB_ENV"
+            else
+              echo "Unable to locate package-lock.json in CI workspace" >&2
+              exit 1
+            fi
           fi
       - run: npm ci
         working-directory: ${{ env.WORKSPACE_ROOT }}

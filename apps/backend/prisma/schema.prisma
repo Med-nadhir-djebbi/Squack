@@ -37,8 +37,11 @@ model Tweet {
   updatedAt     DateTime        @updatedAt
   reactions     TweetReaction[]
   author        User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
-
+  parentId      String?  
+  parent        Tweet?          @relation("TweetReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Tweet[]         @relation("TweetReplies")
   @@index([authorId, createdAt])
+  @@index([parentId, createdAt])
   @@map("tweets")
 }
 

@@ -65,7 +65,7 @@ export class TweetsResolver {
     @Context() context: { req: { user: UserModel } },
     @Args('input') input: CreateTweetInput,
   ): Promise<TweetType> {
-    return this.tweetsService.create(context.req.user.id, input.content);
+    return this.tweetsService.create(context.req.user.id, input);
   }
 
   @Mutation(() => TweetType)

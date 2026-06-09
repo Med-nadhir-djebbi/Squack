@@ -9,7 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TweetsEvents } from './tweets.events';
 import { TweetConnection, TweetType } from './tweets.types';
-
+import {CreateTweetInput} from "./tweets.types";
 const tweetDetails = {
   author: {
     select: {
@@ -108,11 +108,11 @@ export class TweetsService {
     return this.toConnection(tweets, pageSize);
   }
 
-  async create(authorId: string, content: string): Promise<TweetType> {
-    const validatedContent = this.validateContent(content);
+  async create(authorId: string, input : CreateTweetInput): Promise<TweetType> {
+    const validatedContent = this.validateContent(input.content);
     const result = await this.prisma.$transaction(async (transaction) => {
       const storedTweet = await transaction.tweet.create({
-        data: { authorId, content: validatedContent },
+        data: { authorId, content: validatedContent ,parentId: input.parentId? { connect: { id: input.parentId } }: undefined},
         include: tweetDetails,
       });
       const tweet = this.toTweet(storedTweet);

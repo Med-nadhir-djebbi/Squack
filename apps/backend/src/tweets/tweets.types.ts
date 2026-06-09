@@ -10,6 +10,7 @@ import {
 } from '@nestjs/graphql';
 import {
   IsEnum,
+  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -54,6 +55,13 @@ export class TweetType {
 
   @Field(() => TweetAuthor)
   author!: TweetAuthor;
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;    
+
+  @Field(() => [TweetType], { nullable: 'itemsAndList' })
+  children?: TweetType[];
 
   @Field(() => GraphQLISODateTime)
   createdAt!: Date;
@@ -75,6 +83,10 @@ export class CreateTweetInput {
   @MinLength(1)
   @MaxLength(280)
   content!: string;
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  parentId?: string;
 }
 
 @InputType()

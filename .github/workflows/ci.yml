@@ -13,14 +13,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Resolve workspace root
+        run: |
+          lockfile_path="$(find . -path '*/node_modules' -prune -o -type f -name package-lock.json -print -quit)"
+          if [ -n "$lockfile_path" ]; then
+            echo "WORKSPACE_ROOT=$(dirname "$lockfile_path")" >> "$GITHUB_ENV"
+          else
+            echo "Unable to locate package-lock.json in CI workspace. Ensure it exists in the repository tree outside node_modules." >&2
+            exit 1
+          fi
       - run: npm ci
+        working-directory: ${{ env.WORKSPACE_ROOT }}
       - run: npm run prisma:generate --workspace=apps/backend
+        working-directory: ${{ env.WORKSPACE_ROOT }}
       - run: npm run prisma:migrate --workspace=apps/backend
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         env:
           DATABASE_URL: file:/tmp/squack-ci.db
       - run: npm run check
+        working-directory: ${{ env.WORKSPACE_ROOT }}
         env:
           DATABASE_URL: file:/tmp/squack-ci.db
           JWT_SECRET: ci-only-secret-that-is-long-enough
           CORS_ORIGINS: http://localhost:5173
       - run: npm audit --audit-level=moderate
+        working-directory: ${{ env.WORKSPACE_ROOT }}

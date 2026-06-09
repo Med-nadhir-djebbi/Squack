@@ -15,6 +15,8 @@ import { io } from 'socket.io-client'
 import type { Socket } from 'socket.io-client'
 import { messageBelongsToThread, upsertMessage } from './message-utils'
 import type { Message } from './message-utils'
+import { buildTweetThreads, removeTweetThread } from './tweet-utils'
+import type { TweetThread } from './tweet-utils'
 import './App.css'
 
 const TOKEN_KEY = 'squack_access_token'
@@ -71,6 +73,7 @@ type Tweet = {
   content: string
   authorId: string
   author: TweetAuthor
+  parentId?: string | null
   createdAt: string
   updatedAt: string
   reactionCount: number
@@ -195,6 +198,7 @@ const TWEET_FIELDS = `
   id
   content
   authorId
+  parentId
   createdAt
   updatedAt
   reactionCount
@@ -835,13 +839,17 @@ function AppLoading() {
 function PostCard({
   post,
   viewerId,
+  replyCount,
   onReact,
+  onReply,
   onUpdate,
   onDelete,
 }: {
   post: Tweet
   viewerId: string
+  replyCount: number
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
 }) {
@@ -849,10 +857,15 @@ function PostCard({
   const [editDraft, setEditDraft] = useState(post.content)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isReplying, setIsReplying] = useState(false)
+  const [replyDraft, setReplyDraft] = useState('')
+  const [isSendingReply, setIsSendingReply] = useState(false)
 
   const isOwner = post.authorId === viewerId
   const trimmedEdit = editDraft.trim()
+  const trimmedReply = replyDraft.trim()
   const editRemaining = Math.max(0, 280 - editDraft.length)
+  const replyRemaining = Math.max(0, 280 - replyDraft.length)
   const wasEdited = post.updatedAt !== post.createdAt
 
   function beginEditing() {
@@ -860,15 +873,17 @@ function PostCard({
     setIsEditing(true)
   }
 
+  function beginReplying() {
+    setReplyDraft('')
+    setIsReplying(true)
+  }
+
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!trimmedEdit || trimmedEdit === post.content || isSaving) {
-      return
-    }
+    if (!trimmedEdit || trimmedEdit === post.content || isSaving) return
 
     setIsSaving(true)
-
     try {
       await onUpdate(post.id, trimmedEdit)
       setIsEditing(false)
@@ -879,13 +894,27 @@ function PostCard({
     }
   }
 
-  async function deletePost() {
-    if (isDeleting || !window.confirm('Delete this squack?')) {
+  async function submitReply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    if (!trimmedReply || isSendingReply) return
+
+    setIsSendingReply(true)
+    try {
+      await onReply(post.id, trimmedReply)
+      setReplyDraft('')
+      setIsReplying(false)
+    } catch {
       return
+    } finally {
+      setIsSendingReply(false)
     }
+  }
+
+  async function deletePost() {
+    if (isDeleting || !window.confirm('Delete this squack and its replies?')) return
 
     setIsDeleting(true)
-
     try {
       await onDelete(post.id)
     } catch {
@@ -895,10 +924,7 @@ function PostCard({
 
   return (
     <article className="post">
-      <Avatar
-        label={initials(post.author.username)}
-        tone={toneFor(post.author.id)}
-      />
+      <Avatar label={initials(post.author.username)} tone={toneFor(post.author.id)} />
       <div className="post-body">
         <div className="post-topline">
           <div>
@@ -909,12 +935,7 @@ function PostCard({
           </div>
           {isOwner && !isEditing && (
             <div className="post-owner-actions">
-              <button
-                className="ghost-icon"
-                onClick={beginEditing}
-                type="button"
-                aria-label="Edit post"
-              >
+              <button className="ghost-icon" onClick={beginEditing} type="button" aria-label="Edit post">
                 <Icon name="edit" />
               </button>
               <button
@@ -942,11 +963,7 @@ function PostCard({
             <div className="post-edit-footer">
               <span>{editRemaining}</span>
               <div className="post-edit-actions">
-                <button
-                  className="text-link"
-                  onClick={() => setIsEditing(false)}
-                  type="button"
-                >
+                <button className="text-link" onClick={() => setIsEditing(false)} type="button">
                   Cancel
                 </button>
                 <button
@@ -964,23 +981,102 @@ function PostCard({
         )}
 
         {!isEditing && (
-          <div className="post-actions">
-            <button
-              type="button"
-              aria-label="Like post"
-              onClick={() => onReact(post.id, 'LIKE')}
-            >
-              <Icon name="heart" />
-              <span>{post.reactionCount}</span>
-            </button>
-            <button type="button" aria-label="Views">
-              <Icon name="chart" />
-              <span>{post.reactionCounts.length}</span>
-            </button>
-          </div>
+          <>
+            <div className="post-actions">
+              <button type="button" aria-label="Like post" onClick={() => onReact(post.id, 'LIKE')}>
+                <Icon name="heart" />
+                <span>{post.reactionCount}</span>
+              </button>
+              <button
+                type="button"
+                aria-label="Reply to post"
+                onClick={isReplying ? () => setIsReplying(false) : beginReplying}
+              >
+                <Icon name="reply" />
+                <span>{replyCount}</span>
+              </button>
+              <button type="button" aria-label="Reaction types">
+                <Icon name="chart" />
+                <span>{post.reactionCounts.length}</span>
+              </button>
+            </div>
+
+            {isReplying && (
+              <form className="reply-form" onSubmit={submitReply}>
+                <textarea
+                  aria-label={'Reply to @' + post.author.username}
+                  autoFocus
+                  maxLength={280}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  placeholder={'Reply to @' + post.author.username}
+                  value={replyDraft}
+                />
+                <div className="reply-form-footer">
+                  <span>{replyRemaining}</span>
+                  <div>
+                    <button className="text-link" onClick={() => setIsReplying(false)} type="button">
+                      Cancel
+                    </button>
+                    <button
+                      className="send-button"
+                      disabled={!trimmedReply || isSendingReply}
+                      type="submit"
+                    >
+                      {isSendingReply ? 'Replying' : 'Reply'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
+          </>
         )}
       </div>
     </article>
+  )
+}
+
+function PostThread({
+  thread,
+  viewerId,
+  onReact,
+  onReply,
+  onUpdate,
+  onDelete,
+}: {
+  thread: TweetThread<Tweet>
+  viewerId: string
+  onReact: (tweetId: string, kind: ReactionKind) => void
+  onReply: (parentId: string, content: string) => Promise<void>
+  onUpdate: (tweetId: string, content: string) => Promise<void>
+  onDelete: (tweetId: string) => Promise<void>
+}) {
+  return (
+    <div className="post-thread">
+      <PostCard
+        post={thread}
+        viewerId={viewerId}
+        replyCount={thread.replies.length}
+        onReact={onReact}
+        onReply={onReply}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+      />
+      {thread.replies.length > 0 && (
+        <div className="post-replies">
+          {thread.replies.map((reply) => (
+            <PostThread
+              thread={reply}
+              key={reply.id}
+              viewerId={viewerId}
+              onReact={onReact}
+              onReply={onReply}
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -1025,37 +1121,44 @@ function Composer({
 
 function FeedList({
   posts,
+  allPosts = posts,
   viewerId,
   onReact,
+  onReply,
   onUpdate,
   onDelete,
   label = 'Timeline',
 }: {
   posts: Tweet[]
+  allPosts?: Tweet[]
   viewerId: string
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
   label?: string
 }) {
-  if (!posts.length) {
+  const threads = useMemo(() => buildTweetThreads(posts, allPosts), [posts, allPosts])
+
+  if (!threads.length) {
     return (
       <EmptyState
         icon="message"
         title="No squacks yet"
-        body="Create the first post, then sign in as another user to react to it."
+        body="Create the first post, then sign in as another user to reply to it."
       />
     )
   }
 
   return (
     <section className="feed-list" aria-label={label}>
-      {posts.map((post) => (
-        <PostCard
-          post={post}
-          key={post.id}
+      {threads.map((thread) => (
+        <PostThread
+          thread={thread}
+          key={thread.id}
           viewerId={viewerId}
           onReact={onReact}
+          onReply={onReply}
           onUpdate={onUpdate}
           onDelete={onDelete}
         />
@@ -1066,20 +1169,24 @@ function FeedList({
 
 function HomePage({
   posts,
+  allPosts,
   viewerId,
   draft,
   onDraftChange,
   onPublish,
   onReact,
+  onReply,
   onUpdate,
   onDelete,
 }: {
   posts: Tweet[]
+  allPosts: Tweet[]
   viewerId: string
   draft: string
   onDraftChange: (value: string) => void
   onPublish: (event: FormEvent<HTMLFormElement>) => void
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
 }) {
@@ -1089,8 +1196,10 @@ function HomePage({
       <Composer draft={draft} onDraftChange={onDraftChange} onPublish={onPublish} />
       <FeedList
         posts={posts}
+        allPosts={allPosts}
         viewerId={viewerId}
         onReact={onReact}
+        onReply={onReply}
         onUpdate={onUpdate}
         onDelete={onDelete}
         label="Following timeline"
@@ -1106,6 +1215,7 @@ function ExplorePage({
   followingIds,
   onFollow,
   onUnfollow,
+  onReply,
   onUpdate,
   onDelete,
 }: {
@@ -1115,6 +1225,7 @@ function ExplorePage({
   followingIds: Set<string>
   onFollow: (id: string) => void
   onUnfollow: (id: string) => void
+  onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
 }) {
@@ -1160,8 +1271,10 @@ function ExplorePage({
       </section>
       <FeedList
         posts={posts}
+        allPosts={posts}
         viewerId={viewerId}
         onReact={() => undefined}
+        onReply={onReply}
         onUpdate={onUpdate}
         onDelete={onDelete}
         label="Explore timeline"
@@ -1493,12 +1606,14 @@ function ProfilePage({
   viewer,
   posts,
   onReact,
+  onReply,
   onUpdate,
   onDelete,
 }: {
   viewer: User
   posts: Tweet[]
   onReact: (tweetId: string, kind: ReactionKind) => void
+  onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
 }) {
@@ -1526,8 +1641,10 @@ function ProfilePage({
       </section>
       <FeedList
         posts={ownPosts}
+        allPosts={posts}
         viewerId={viewer.id}
         onReact={onReact}
+        onReply={onReply}
         onUpdate={onUpdate}
         onDelete={onDelete}
         label="Profile posts"
@@ -1896,6 +2013,31 @@ function SquackApp() {
     }
   }
 
+  async function publishReply(parentId: string, content: string) {
+    if (!token) return
+
+    try {
+      const data = await graphqlRequest<{ createTweet: Tweet }>(
+        CREATE_TWEET_MUTATION,
+        { input: { content: content.trim(), parentId } },
+        token,
+      )
+      setPosts((currentPosts) => [
+        data.createTweet,
+        ...currentPosts.filter((post) => post.id !== data.createTweet.id),
+      ])
+      setFeedPosts((currentFeed) =>
+        currentFeed.some((post) => post.id === parentId)
+          ? [data.createTweet, ...currentFeed.filter((post) => post.id !== data.createTweet.id)]
+          : currentFeed,
+      )
+      setError('')
+    } catch (replyError) {
+      setError(getErrorMessage(replyError))
+      throw replyError
+    }
+  }
+
   async function reactToPost(tweetId: string, kind: ReactionKind) {
     if (!token) {
       return
@@ -1960,7 +2102,7 @@ function SquackApp() {
       }
 
       const remove = (currentPosts: Tweet[]) =>
-        currentPosts.filter((post) => post.id !== tweetId)
+        removeTweetThread(currentPosts, tweetId)
 
       setPosts(remove)
       setFeedPosts(remove)
@@ -2080,11 +2222,13 @@ function SquackApp() {
             element={
               <HomePage
                 posts={feedPosts}
+                allPosts={posts}
                 viewerId={viewer.id}
                 draft={draft}
                 onDraftChange={setDraft}
                 onPublish={publishPost}
                 onReact={reactToPost}
+                onReply={publishReply}
                 onUpdate={updatePost}
                 onDelete={deletePost}
               />
@@ -2100,6 +2244,7 @@ function SquackApp() {
                 followingIds={followingIds}
                 onFollow={followUser}
                 onUnfollow={unfollowUser}
+                onReply={publishReply}
                 onUpdate={updatePost}
                 onDelete={deletePost}
               />
@@ -2145,6 +2290,7 @@ function SquackApp() {
                 viewer={viewer}
                 posts={posts}
                 onReact={reactToPost}
+                onReply={publishReply}
                 onUpdate={updatePost}
                 onDelete={deletePost}
               />

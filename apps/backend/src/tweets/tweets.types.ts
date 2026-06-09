@@ -58,7 +58,7 @@ export class TweetType {
   @Field(() => ID, { nullable: true })
   @IsOptional()
   @IsUUID()
-  parentId?: string;    
+  parentId?: string | null;
 
   @Field(() => [TweetType], { nullable: 'itemsAndList' })
   children?: TweetType[];

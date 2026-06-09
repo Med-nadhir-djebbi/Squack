@@ -971,10 +971,10 @@
 
 .post-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 14px;
-  max-width: 230px;
+  max-width: 310px;
 }
 
 .post-actions button {
@@ -983,6 +983,69 @@
   gap: 7px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.post-thread {
+  min-width: 0;
+}
+
+.post-replies {
+  margin-left: 32px;
+  border-left: 2px solid var(--line);
+}
+
+.post-replies .post {
+  padding-left: 16px;
+  background: color-mix(in srgb, var(--surface) 94%, var(--soft-leaf));
+}
+
+.reply-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.reply-form textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.5;
+  outline: 0;
+}
+
+.reply-form textarea:focus {
+  border-color: var(--moss);
+}
+
+.reply-form-footer,
+.reply-form-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reply-form-footer {
+  justify-content: space-between;
+}
+
+.reply-form-footer > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.reply-form-footer .send-button {
+  min-width: 78px;
+  min-height: 36px;
 }
 
 .right-rail {
@@ -1432,5 +1495,24 @@
   
   .toast {
     max-width: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .post-replies {
+    margin-left: 14px;
+  }
+
+  .post-replies .post {
+    padding-left: 10px;
+  }
+
+  .reply-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reply-form-footer > div {
+    justify-content: flex-end;
   }
 }

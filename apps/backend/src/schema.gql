@@ -74,6 +74,8 @@ type Tweet {
   content: String!
   authorId: ID!
   author: TweetAuthor!
+  parentId: ID
+  children: [Tweet]
   createdAt: DateTime!
   updatedAt: DateTime!
   reactionCount: Int!
@@ -127,6 +129,7 @@ type Mutation {
 
 input CreateTweetInput {
   content: String!
+  parentId: ID
 }
 
 input UpdateTweetInput {

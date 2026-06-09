@@ -13,6 +13,7 @@ describe('TweetsService', () => {
       content: 'hello world',
       authorId: 'author-1',
       author: { id: 'author-1', username: 'alice', avatarUrl: null },
+      parentId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
       reactions: [],
@@ -55,7 +56,7 @@ describe('TweetsService', () => {
     const service = new TweetsService(prisma, events, notifications);
 
     await expect(
-      service.create('author-1', ' hello world '),
+      service.create('author-1', { content: ' hello world ' }),
     ).resolves.toMatchObject({
       id: 'tweet-1',
       content: 'hello world',

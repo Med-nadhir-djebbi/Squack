@@ -19,7 +19,7 @@ jobs:
           if [ -n "$lockfile_path" ]; then
             echo "WORKSPACE_ROOT=$(dirname "$lockfile_path")" >> "$GITHUB_ENV"
           else
-            echo "Unable to locate package-lock.json in CI workspace" >&2
+            echo "Unable to locate package-lock.json in CI workspace. Ensure it exists in the repository tree outside node_modules." >&2
             exit 1
           fi
       - run: npm ci

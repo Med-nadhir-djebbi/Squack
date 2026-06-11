@@ -14,21 +14,13 @@ messaging, automated tests, and containerized deployment.
 
 ### Login
 
-> Screenshot slot: add the login page image at
-> `docs/screenshots/login.png`, then replace this note with:
-> `![Squack login page](docs/screenshots/login.png)`
+![Squack login page](docs/screenshots/login.png)
 
-### Home
-
-> Screenshot slot: add the home page image at
-> `docs/screenshots/home.png`, then replace this note with:
-> `![Squack home feed](docs/screenshots/home.png)`
+![Squack home feed](docs/screenshots/home.png)
 
 ### Messaging
 
-> Screenshot slot: add the messaging page image at
-> `docs/screenshots/messaging.png`, then replace this note with:
-> `![Squack messaging page](docs/screenshots/messaging.png)`
+![Squack messaging page](docs/screenshots/messaging.png)
 
 ## Features
 

@@ -5,6 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { NotificationType, TweetReactionKind } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
+import { mkdir, rename, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import sharp from 'sharp';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TweetsEvents } from './tweets.events';
@@ -34,6 +38,7 @@ interface StoredTweet {
     avatarUrl: string | null;
   };
   parentId: string | null;
+  imageUrls: string[];
   createdAt: Date;
   updatedAt: Date;
   reactions: Array<{ kind: TweetReactionKind }>;
@@ -41,6 +46,12 @@ interface StoredTweet {
 
 @Injectable()
 export class TweetsService {
+  private static readonly acceptedImageTypes = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ]);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: TweetsEvents,
@@ -278,6 +289,63 @@ export class TweetsService {
     };
   }
 
+  async uploadImages(
+    userId: string,
+    tweetId: string,
+    images: Express.Multer.File[],
+  ): Promise<TweetType> {
+    await this.assertOwner(userId, tweetId, 'edit');
+
+    if (!images.length) {
+      throw new BadRequestException('At least one image is required');
+    }
+
+    const unsupportedImage = images.find(
+      (image) => !TweetsService.acceptedImageTypes.has(image.mimetype),
+    );
+
+    if (unsupportedImage) {
+      throw new BadRequestException('Images must be JPEG, PNG, or WebP files');
+    }
+
+    const postsDirectory = join(process.cwd(), 'uploads', 'posts');
+    const directory = join(postsDirectory, tweetId);
+    const temporaryDirectory = join(
+      postsDirectory,
+      `${tweetId}-${randomUUID()}`,
+    );
+    const imageUrls = images.map(
+      (_, index) => `/uploads/posts/${tweetId}/${index}.jpg`,
+    );
+
+    await mkdir(temporaryDirectory, { recursive: true });
+
+    try {
+      await Promise.all(
+        images.map((image, index) =>
+          sharp(image.buffer)
+            .rotate()
+            .jpeg({ quality: 85, mozjpeg: true })
+            .toFile(join(temporaryDirectory, `${index}.jpg`)),
+        ),
+      );
+
+      await rm(directory, { recursive: true, force: true });
+      await rename(temporaryDirectory, directory);
+
+      const storedTweet = await this.prisma.tweet.update({
+        where: { id: tweetId },
+        data: { imageUrls },
+        include: tweetDetails,
+      });
+
+      return this.toTweet(storedTweet);
+    } catch (error) {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+      throw error;
+    }
+  }
+
   private toTweet(tweet: StoredTweet): TweetType {
     const reactionCounts = Object.values(TweetReactionKind)
       .map((kind) => ({
@@ -293,6 +361,7 @@ export class TweetsService {
       authorId: tweet.authorId,
       author: tweet.author,
       parentId: tweet.parentId ?? undefined,
+      imageUrls: tweet.imageUrls,
       createdAt: tweet.createdAt,
       updatedAt: tweet.updatedAt,
       reactionCount: tweet.reactions.length,

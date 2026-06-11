@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { FormEvent, ReactNode } from 'react'
+import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import {
   BrowserRouter,
   Link,
@@ -25,6 +25,13 @@ const GRAPHQL_URL =
 const API_URL = (
   import.meta.env.VITE_API_URL ?? GRAPHQL_URL.replace(/\/graphql\/?$/, '')
 ).replace(/\/$/, '')
+const MAX_TWEET_IMAGES = 4
+const MAX_TWEET_IMAGE_BYTES = 5 * 1024 * 1024
+const ACCEPTED_TWEET_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
 type IconName =
   | 'home'
   | 'search'
@@ -78,6 +85,7 @@ type Tweet = {
   updatedAt: string
   reactionCount: number
   reactionCounts: TweetReactionCount[]
+  imageUrls: string[]
 }
 
 type NotificationType = 'FOLLOW' | 'MESSAGE' | 'TWEET'
@@ -199,6 +207,7 @@ const TWEET_FIELDS = `
   content
   authorId
   parentId
+  imageUrls
   createdAt
   updatedAt
   reactionCount
@@ -388,6 +397,35 @@ async function graphqlRequest<T>(
   return payload.data
 }
 
+async function uploadTweetImages(
+  tweetId: string,
+  images: File[],
+  token: string,
+): Promise<Tweet> {
+  const body = new FormData()
+
+  images.forEach((image) => body.append('images', image))
+
+  const response = await fetch(`${API_URL}/tweets/${tweetId}/images`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body,
+  })
+
+  const payload = (await response.json().catch(() => null)) as unknown
+
+  if (!response.ok) {
+    throw new Error(
+      getAuthErrorMessage(payload) ??
+        `Image upload failed with ${response.status}`,
+    )
+  }
+
+  return payload as Tweet
+}
+
 function getAuthErrorMessage(payload: unknown) {
   if (!payload || typeof payload !== 'object' || !('message' in payload)) {
     return null
@@ -534,6 +572,14 @@ function formatTime(value: string) {
   }
 
   return `${Math.floor(diffMs / day)}d`
+}
+
+function resolveImageUrl(imageUrl: string): string {
+  if (/^(https?:|blob:|data:)/.test(imageUrl)) {
+    return imageUrl
+  }
+
+  return `${API_URL}${imageUrl.startsWith('/') ? '' : '/'}${imageUrl}`
 }
 
 function Icon({ name }: { name: IconName }) {
@@ -977,6 +1023,19 @@ function PostCard({
           <p>{post.content}</p>
         )}
 
+        {post.imageUrls.length > 0 && (
+          <div className={`post-image-grid post-image-grid-${post.imageUrls.length}`}>
+            {post.imageUrls.map((imageUrl, index) => (
+              <img
+                alt={`Image ${index + 1} attached to this post`}
+                key={imageUrl}
+                loading="lazy"
+                src={resolveImageUrl(imageUrl)}
+              />
+            ))}
+          </div>
+        )}
+
         {!isEditing && (
           <>
             <div className="post-actions">
@@ -1100,14 +1159,72 @@ function PostThread({
 
 function Composer({
   draft,
+  images,
+  isPublishing,
   onDraftChange,
+  onImagesChange,
   onPublish,
 }: {
   draft: string
+  images: File[]
+  isPublishing: boolean
   onDraftChange: (value: string) => void
+  onImagesChange: (images: File[]) => void
   onPublish: (event: FormEvent<HTMLFormElement>) => void
 }) {
+  const [imageError, setImageError] = useState('')
   const remaining = Math.max(0, 280 - draft.length)
+  const previews = useMemo(
+    () => images.map((image) => URL.createObjectURL(image)),
+    [images],
+  )
+
+  useEffect(
+    () => () => previews.forEach((preview) => URL.revokeObjectURL(preview)),
+    [previews],
+  )
+
+  function selectImages(event: ChangeEvent<HTMLInputElement>) {
+    const selectedImages = Array.from(event.target.files ?? [])
+    event.target.value = ''
+
+    const unsupportedImage = selectedImages.find(
+      (image) => !ACCEPTED_TWEET_IMAGE_TYPES.has(image.type),
+    )
+
+    if (unsupportedImage) {
+      setImageError('Images must be JPEG, PNG, or WebP files.')
+      return
+    }
+
+    const oversizedImage = selectedImages.find(
+      (image) => image.size > MAX_TWEET_IMAGE_BYTES,
+    )
+
+    if (oversizedImage) {
+      setImageError('Each image must be 5 MB or smaller.')
+      return
+    }
+
+    const availableSlots = MAX_TWEET_IMAGES - images.length
+
+    if (availableSlots <= 0) {
+      setImageError(`A post can contain up to ${MAX_TWEET_IMAGES} images.`)
+      return
+    }
+
+    onImagesChange([...images, ...selectedImages.slice(0, availableSlots)])
+    setImageError(
+      selectedImages.length > availableSlots
+        ? `Only the first ${availableSlots} selected images were added.`
+        : '',
+    )
+  }
+
+  function removeImage(index: number) {
+    onImagesChange(images.filter((_, imageIndex) => imageIndex !== index))
+    setImageError('')
+  }
 
   return (
     <form className="composer" onSubmit={onPublish}>
@@ -1120,16 +1237,53 @@ function Composer({
           placeholder="What is moving today?"
           value={draft}
         />
+
+        {previews.length > 0 && (
+          <div className={`composer-image-grid composer-image-grid-${previews.length}`}>
+            {previews.map((preview, index) => (
+              <div className="composer-image-preview" key={preview}>
+                <img alt={`Selected upload ${index + 1}`} src={preview} />
+                <button
+                  aria-label={`Remove selected image ${index + 1}`}
+                  disabled={isPublishing}
+                  onClick={() => removeImage(index)}
+                  type="button"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {imageError && <p className="composer-image-error">{imageError}</p>}
+
         <div className="composer-footer">
           <div className="composer-tools">
-            <button type="button" aria-label="Attach image">
+            <label
+              aria-disabled={images.length >= MAX_TWEET_IMAGES || isPublishing}
+              aria-label="Attach images"
+              className="composer-image-picker"
+            >
+              <input
+                accept="image/jpeg,image/png,image/webp"
+                disabled={images.length >= MAX_TWEET_IMAGES || isPublishing}
+                multiple
+                onChange={selectImages}
+                type="file"
+              />
               <Icon name="image" />
-            </button>
+            </label>
+            <span>{images.length}/{MAX_TWEET_IMAGES} images</span>
             <span>{remaining}</span>
           </div>
-          <button className="send-button" disabled={!draft.trim()} type="submit">
+          <button
+            className="send-button"
+            disabled={!draft.trim() || isPublishing}
+            type="submit"
+          >
             <Icon name="send" />
-            <span>Post</span>
+            <span>{isPublishing ? 'Posting' : 'Post'}</span>
           </button>
         </div>
       </div>
@@ -1190,7 +1344,10 @@ function HomePage({
   allPosts,
   viewerId,
   draft,
+  images,
+  isPublishing,
   onDraftChange,
+  onImagesChange,
   onPublish,
   onReact,
   onReply,
@@ -1201,7 +1358,10 @@ function HomePage({
   allPosts: Tweet[]
   viewerId: string
   draft: string
+  images: File[]
+  isPublishing: boolean
   onDraftChange: (value: string) => void
+  onImagesChange: (images: File[]) => void
   onPublish: (event: FormEvent<HTMLFormElement>) => void
   onReact: (tweetId: string, kind: ReactionKind) => void
   onReply: (parentId: string, content: string) => Promise<void>
@@ -1211,7 +1371,14 @@ function HomePage({
   return (
     <>
       <PageHeader meta={pageByPath['/']} />
-      <Composer draft={draft} onDraftChange={onDraftChange} onPublish={onPublish} />
+      <Composer
+        draft={draft}
+        images={images}
+        isPublishing={isPublishing}
+        onDraftChange={onDraftChange}
+        onImagesChange={onImagesChange}
+        onPublish={onPublish}
+      />
       <FeedList
         posts={posts}
         allPosts={allPosts}
@@ -1856,7 +2023,9 @@ function SquackApp() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [toasts, setToasts] = useState<Toast[]>([])
   const [draft, setDraft] = useState('')
+  const [draftImages, setDraftImages] = useState<File[]>([])
   const [error, setError] = useState('')
+  const [isPublishing, setIsPublishing] = useState(false)
   const [isLoading, setIsLoading] = useState(() => Boolean(localStorage.getItem(TOKEN_KEY)))
   const [messageSocketStatus, setMessageSocketStatus] = useState<
     'connecting' | 'live' | 'offline'
@@ -2006,15 +2175,19 @@ function SquackApp() {
     setFollowingIds(new Set())
     setNotifications([])
     setMessageSocketStatus('offline')
+    setDraft('')
+    setDraftImages([])
   }
 
   async function publishPost(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const content = draft.trim()
 
-    if (!content || !token) {
+    if (!content || !token || isPublishing) {
       return
     }
+
+    setIsPublishing(true)
 
     try {
       const data = await graphqlRequest<{ createTweet: Tweet }>(
@@ -2022,12 +2195,30 @@ function SquackApp() {
         { input: { content } },
         token,
       )
-      setPosts((currentPosts) => [data.createTweet, ...currentPosts])
-      setFeedPosts((currentFeed) => [data.createTweet, ...currentFeed])
+      let publishedTweet = data.createTweet
+      let uploadWarning = ''
+
+      if (draftImages.length > 0) {
+        try {
+          publishedTweet = await uploadTweetImages(
+            data.createTweet.id,
+            draftImages,
+            token,
+          )
+        } catch (uploadError) {
+          uploadWarning = `Post created, but its images were not uploaded: ${getErrorMessage(uploadError)}`
+        }
+      }
+
+      setPosts((currentPosts) => [publishedTweet, ...currentPosts])
+      setFeedPosts((currentFeed) => [publishedTweet, ...currentFeed])
       setDraft('')
-      setError('')
+      setDraftImages([])
+      setError(uploadWarning)
     } catch (publishError) {
       setError(getErrorMessage(publishError))
+    } finally {
+      setIsPublishing(false)
     }
   }
 
@@ -2243,7 +2434,10 @@ function SquackApp() {
                 allPosts={posts}
                 viewerId={viewer.id}
                 draft={draft}
+                images={draftImages}
+                isPublishing={isPublishing}
                 onDraftChange={setDraft}
+                onImagesChange={setDraftImages}
                 onPublish={publishPost}
                 onReact={reactToPost}
                 onReply={publishReply}

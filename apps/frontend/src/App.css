@@ -295,6 +295,7 @@
 }
 
 .composer-tools button,
+.composer-image-picker,
 .icon-button,
 .ghost-icon,
 .post-actions button,
@@ -315,6 +316,7 @@
 }
 
 .composer-tools button:hover,
+.composer-image-picker:hover,
 .icon-button:hover,
 .ghost-icon:hover,
 .post-actions button:hover,
@@ -323,6 +325,84 @@
   border-color: var(--line-strong);
   background: var(--soft-leaf);
   color: var(--leaf-dark);
+}
+
+.composer-image-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.composer-image-picker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.composer-image-picker[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.composer-image-grid,
+.post-image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.composer-image-grid-1,
+.post-image-grid-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.composer-image-preview {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+}
+
+.composer-image-preview img,
+.post-image-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}
+
+.composer-image-grid-1 img,
+.post-image-grid-1 img {
+  aspect-ratio: 16 / 9;
+}
+
+.composer-image-preview button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 999px;
+  background: rgba(25, 29, 27, 0.78);
+  color: white;
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-image-error {
+  margin: 8px 0 0;
+  color: var(--clay);
+  font-size: 13px;
 }
 
 .send-button {
@@ -983,6 +1063,12 @@
   gap: 7px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.post-image-grid {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--paper);
 }
 
 .post-actions button.is-active {

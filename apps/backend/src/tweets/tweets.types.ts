@@ -74,6 +74,9 @@ export class TweetType {
 
   @Field(() => [TweetReactionCount])
   reactionCounts!: TweetReactionCount[];
+
+  @Field(() => [String])
+  imageUrls!: string[];
 }
 
 @InputType()

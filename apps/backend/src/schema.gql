@@ -80,6 +80,7 @@ type Tweet {
   updatedAt: DateTime!
   reactionCount: Int!
   reactionCounts: [TweetReactionCount!]!
+  imageUrls: [String!]!
 }
 
 type TweetReactionCount {

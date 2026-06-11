@@ -31,4 +31,6 @@ yarn-error.log*
 # Local database files
 apps/backend/dev.db
 apps/backend/prisma/dev.db
+apps/backend/uploads/
+uploads/
 ARCHITECTURE.md

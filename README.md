@@ -16,12 +16,13 @@ Squack is a TypeScript social application with a NestJS, GraphQL, Socket.IO, and
    npm ci
    ```
 
-2. Create the backend environment file:
+2. Create the backend environment file :
 
    ```bash
    cp apps/backend/.env.example apps/backend/.env
    ```
-
+   *** dont forget to configure you database
+   
 3. Generate Prisma Client and apply migrations:
 
    ```bash

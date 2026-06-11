@@ -840,6 +840,8 @@ function PostCard({
   post,
   viewerId,
   replyCount,
+  isDiscussionOpen,
+  onToggleDiscussion,
   onReact,
   onReply,
   onUpdate,
@@ -848,6 +850,8 @@ function PostCard({
   post: Tweet
   viewerId: string
   replyCount: number
+  isDiscussionOpen: boolean
+  onToggleDiscussion: () => void
   onReact: (tweetId: string, kind: ReactionKind) => void
   onReply: (parentId: string, content: string) => Promise<void>
   onUpdate: (tweetId: string, content: string) => Promise<void>
@@ -857,7 +861,6 @@ function PostCard({
   const [editDraft, setEditDraft] = useState(post.content)
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [isReplying, setIsReplying] = useState(false)
   const [replyDraft, setReplyDraft] = useState('')
   const [isSendingReply, setIsSendingReply] = useState(false)
 
@@ -871,11 +874,6 @@ function PostCard({
   function beginEditing() {
     setEditDraft(post.content)
     setIsEditing(true)
-  }
-
-  function beginReplying() {
-    setReplyDraft('')
-    setIsReplying(true)
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
@@ -903,7 +901,6 @@ function PostCard({
     try {
       await onReply(post.id, trimmedReply)
       setReplyDraft('')
-      setIsReplying(false)
     } catch {
       return
     } finally {
@@ -988,12 +985,20 @@ function PostCard({
                 <span>{post.reactionCount}</span>
               </button>
               <button
+                aria-expanded={isDiscussionOpen}
+                aria-label={
+                  isDiscussionOpen
+                    ? 'Hide comments'
+                    : 'Show comments and reply'
+                }
+                className={isDiscussionOpen ? 'is-active' : undefined}
                 type="button"
-                aria-label="Reply to post"
-                onClick={isReplying ? () => setIsReplying(false) : beginReplying}
+                onClick={onToggleDiscussion}
               >
                 <Icon name="reply" />
-                <span>{replyCount}</span>
+                <span>
+                  {replyCount} {replyCount === 1 ? 'comment' : 'comments'}
+                </span>
               </button>
               <button type="button" aria-label="Reaction types">
                 <Icon name="chart" />
@@ -1001,7 +1006,7 @@ function PostCard({
               </button>
             </div>
 
-            {isReplying && (
+            {isDiscussionOpen && (
               <form className="reply-form" onSubmit={submitReply}>
                 <textarea
                   aria-label={'Reply to @' + post.author.username}
@@ -1014,7 +1019,14 @@ function PostCard({
                 <div className="reply-form-footer">
                   <span>{replyRemaining}</span>
                   <div>
-                    <button className="text-link" onClick={() => setIsReplying(false)} type="button">
+                    <button
+                      className="text-link"
+                      onClick={() => {
+                        setReplyDraft('')
+                        onToggleDiscussion()
+                      }}
+                      type="button"
+                    >
                       Cancel
                     </button>
                     <button
@@ -1050,18 +1062,24 @@ function PostThread({
   onUpdate: (tweetId: string, content: string) => Promise<void>
   onDelete: (tweetId: string) => Promise<void>
 }) {
+  const [isDiscussionOpen, setIsDiscussionOpen] = useState(false)
+
   return (
     <div className="post-thread">
       <PostCard
         post={thread}
         viewerId={viewerId}
         replyCount={thread.replies.length}
+        isDiscussionOpen={isDiscussionOpen}
+        onToggleDiscussion={() =>
+          setIsDiscussionOpen((currentValue) => !currentValue)
+        }
         onReact={onReact}
         onReply={onReply}
         onUpdate={onUpdate}
         onDelete={onDelete}
       />
-      {thread.replies.length > 0 && (
+      {isDiscussionOpen && thread.replies.length > 0 && (
         <div className="post-replies">
           {thread.replies.map((reply) => (
             <PostThread
